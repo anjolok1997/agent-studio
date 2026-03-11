@@ -1,0 +1,11 @@
+name: "Data Quality Framework"
+description: "Build a data quality framework with tests, alerts, and data contracts"
+agents:
+  - data-quality
+  - data-engineer
+  - project-manager
+goal: >
+  Design a data quality framework for core tables (transactions, accounts, users)
+  in a Snowflake warehouse. Define quality dimensions to check, write dbt test
+  YAML and SQL for critical checks, specify alert thresholds, and outline a
+  data contract template that source teams must sign off on.

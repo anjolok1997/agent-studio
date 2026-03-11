@@ -1,0 +1,10 @@
+name: "Research Assistant"
+description: "Research a topic, compare approaches, and produce recommendations"
+agents:
+  - researcher
+  - ai-engineer
+  - project-manager
+goal: >
+  Research the given topic thoroughly. Compare different approaches and tools,
+  identify tradeoffs, produce a recommendation with clear reasoning, and create
+  a comparison table summarizing the key options.

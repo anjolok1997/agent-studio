@@ -1,0 +1,10 @@
+name: "Code Review"
+description: "Review code for quality, security, performance, and maintainability"
+agents:
+  - code-reviewer
+  - backend-architect
+  - project-manager
+goal: >
+  Review the provided codebase or pull request. Check for security vulnerabilities,
+  performance issues, code quality, and maintainability. Produce a prioritized
+  list of issues with severity ratings and suggested fixes.
