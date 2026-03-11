@@ -1,0 +1,10 @@
+name: "Data Pipeline Design"
+description: "Design a batch or streaming data pipeline with orchestration and monitoring"
+agents:
+  - data-engineer
+  - backend-architect
+  - project-manager
+goal: >
+  Design a batch ingestion pipeline that pulls data from a Postgres transactional
+  database into a Snowflake data warehouse every hour. Cover the Airflow DAG
+  structure, incremental load strategy, error handling, and monitoring setup.

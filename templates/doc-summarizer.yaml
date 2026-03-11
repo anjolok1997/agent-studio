@@ -1,0 +1,9 @@
+name: "Document Summarizer"
+description: "Summarize documents, extract key points, and produce structured digests"
+agents:
+  - summarizer
+  - project-manager
+goal: >
+  Summarize the provided document or topic. Extract the key points, identify
+  the main arguments and evidence, produce an executive summary, and create
+  a structured outline with section headers and bullet points.
