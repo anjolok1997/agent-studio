@@ -8,3 +8,14 @@ goal: >
   Review the provided codebase or pull request. Check for security vulnerabilities,
   performance issues, code quality, and maintainability. Produce a prioritized
   list of issues with severity ratings and suggested fixes.
+materials:
+  - label: "Code to review"
+    type: file
+    hint: "Path to a source file, directory, or diff"
+    required: true
+  - label: "Language and framework"
+    type: text
+    hint: "e.g., 'Python/FastAPI', 'TypeScript/Next.js', 'Go/Chi'"
+  - label: "Coding standards or focus areas"
+    type: text
+    hint: "e.g., 'Focus on SQL injection and auth', 'Check for N+1 queries'"

@@ -7,3 +7,14 @@ goal: >
   Summarize the provided document or topic. Extract the key points, identify
   the main arguments and evidence, produce an executive summary, and create
   a structured outline with section headers and bullet points.
+materials:
+  - label: "Document to summarize"
+    type: file
+    hint: "Path to a .txt, .md, or .pdf file"
+    required: true
+  - label: "Target audience"
+    type: text
+    hint: "e.g., 'Executive team', 'Technical engineers', 'Non-technical stakeholders'"
+  - label: "Summary length"
+    type: text
+    hint: "e.g., '500 words', '1 page', 'bullet points only'"

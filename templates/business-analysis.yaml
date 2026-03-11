@@ -1,0 +1,21 @@
+name: "Business Analysis"
+description: "Analyze a business problem, define metrics, and produce actionable recommendations"
+agents:
+  - analyst
+  - researcher
+  - project-manager
+goal: >
+  Analyze the described business problem. Define success metrics and KPIs,
+  research comparable approaches, produce a SWOT analysis, and deliver
+  actionable recommendations with estimated impact and implementation steps.
+materials:
+  - label: "Business problem or question"
+    type: text
+    hint: "e.g., 'Should we expand our SaaS product to the European market?'"
+    required: true
+  - label: "Existing data or reports"
+    type: file
+    hint: "Path to spreadsheets, reports, or market data"
+  - label: "Budget and timeline constraints"
+    type: text
+    hint: "e.g., '$100k budget, decision needed by Q3'"

@@ -8,3 +8,17 @@ goal: >
   Design a batch ingestion pipeline that pulls data from a Postgres transactional
   database into a Snowflake data warehouse every hour. Cover the Airflow DAG
   structure, incremental load strategy, error handling, and monitoring setup.
+materials:
+  - label: "Source system details"
+    type: text
+    hint: "e.g., 'Postgres 14 with 50 tables, largest table is 100M rows'"
+    required: true
+  - label: "Target warehouse"
+    type: text
+    hint: "e.g., 'Snowflake', 'BigQuery', 'Redshift'"
+  - label: "Schema or table definitions"
+    type: file
+    hint: "Path to a SQL file or schema export"
+  - label: "Current pipeline issues or constraints"
+    type: text
+    hint: "e.g., 'Must complete within 30 minutes, no downtime during business hours'"

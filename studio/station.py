@@ -9,6 +9,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from .events import EventEmitter
+from .permissions import PermissionGuard
 
 AGENTS_DIR = Path(__file__).resolve().parent.parent / "agents"
 
@@ -60,13 +61,29 @@ def list_available_agents() -> list[str]:
 class Station:
     """Runs a specialist worker agent on a single subtask."""
 
-    def __init__(self, client: Anthropic, worker_model: str = "claude-haiku-4-5-20251001", emitter: EventEmitter = None):
+    def __init__(self, client: Anthropic, worker_model: str = "claude-haiku-4-5-20251001",
+                 emitter: EventEmitter = None, permissions: PermissionGuard = None,
+                 mcp_bridge=None):
         self.client = client
         self.worker_model = worker_model
         self.emitter = emitter or EventEmitter()
+        self.permissions = permissions or PermissionGuard()
+        self.mcp_bridge = mcp_bridge
         self.artifacts: list[dict] = []
 
     def _run_tool(self, name: str, inputs: dict, agent_type: str) -> str:
+        # Check permissions before executing any tool
+        allowed, reason = self.permissions.check(name, inputs)
+        if not allowed:
+            self.emitter.emit("worker.tool_blocked", {"agent": agent_type, "tool": name, "reason": reason})
+            print(f"      [{agent_type}] {name} -> BLOCKED: {reason}")
+            return f"[BLOCKED] {reason}"
+
+        # Try MCP bridge first for real tool execution
+        if self.mcp_bridge and self.mcp_bridge.has_tool(name):
+            return self.mcp_bridge.call_tool(name, inputs, agent_type)
+
+        # Fall back to simulated tools
         if name == "research":
             self.emitter.emit("worker.tool_called", {"agent": agent_type, "tool": name, "topic": inputs["topic"]})
             return f"[{agent_type}] Research complete on '{inputs['topic']}'."
@@ -95,12 +112,17 @@ class Station:
 
         messages = [{"role": "user", "content": user_content}]
 
+        # Merge MCP tools with built-in tools
+        tools = list(WORKER_TOOLS)
+        if self.mcp_bridge:
+            tools.extend(self.mcp_bridge.discover_tools())
+
         for _ in range(6):
             response = self.client.messages.create(
                 model=self.worker_model,
                 max_tokens=1024,
                 system=system,
-                tools=WORKER_TOOLS,
+                tools=tools,
                 messages=messages,
             )
             messages.append({"role": "assistant", "content": response.content})

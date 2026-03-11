@@ -1,0 +1,24 @@
+name: "Content Creation"
+description: "Draft blog posts, articles, documentation, or business proposals"
+agents:
+  - writer
+  - researcher
+  - project-manager
+goal: >
+  Create polished written content on the given topic. Research the subject,
+  outline the structure, draft the content with appropriate tone for the
+  target audience, and produce a final version ready for review.
+materials:
+  - label: "Topic or brief"
+    type: text
+    hint: "e.g., 'Blog post explaining how our ML recommendation engine works'"
+    required: true
+  - label: "Target audience"
+    type: text
+    hint: "e.g., 'Non-technical executives', 'Developer community', 'University students'"
+  - label: "Reference materials or style guide"
+    type: file
+    hint: "Path to brand guidelines, previous articles, or source material"
+  - label: "Tone and length"
+    type: text
+    hint: "e.g., 'Conversational, 1500 words' or 'Formal, 3 pages'"
