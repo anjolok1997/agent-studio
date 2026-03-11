@@ -8,3 +8,14 @@ goal: >
   Research the given topic thoroughly. Compare different approaches and tools,
   identify tradeoffs, produce a recommendation with clear reasoning, and create
   a comparison table summarizing the key options.
+materials:
+  - label: "Research topic or question"
+    type: text
+    hint: "e.g., 'Best vector database for RAG pipelines under 10ms latency'"
+    required: true
+  - label: "Context or constraints"
+    type: text
+    hint: "e.g., 'Budget is $500/month, team uses Python, deployed on AWS'"
+  - label: "Reference documents"
+    type: file
+    hint: "Path to any relevant docs, papers, or notes"

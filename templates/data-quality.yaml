@@ -9,3 +9,14 @@ goal: >
   in a Snowflake warehouse. Define quality dimensions to check, write dbt test
   YAML and SQL for critical checks, specify alert thresholds, and outline a
   data contract template that source teams must sign off on.
+materials:
+  - label: "Table names and key columns"
+    type: text
+    hint: "e.g., 'transactions (id, amount, user_id, created_at), users (id, email, plan)'"
+    required: true
+  - label: "Known data issues"
+    type: text
+    hint: "e.g., 'Nulls in amount column, duplicate user records from legacy migration'"
+  - label: "Schema definitions"
+    type: file
+    hint: "Path to SQL DDL or dbt schema.yml file"

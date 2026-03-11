@@ -18,6 +18,11 @@ from .quality_gate import QualityGate
 from .permissions import PermissionGuard, ExecutionMode, SpendingGuard
 from .audit import AuditLog
 
+try:
+    from .mcp_bridge import MCPBridge
+except ImportError:
+    MCPBridge = None
+
 load_dotenv()
 
 # ─── ANSI Colors ──────────────────────────────────────────────────────────────
@@ -45,6 +50,7 @@ class Engine:
         spending_guard: SpendingGuard = None,
         audit: AuditLog = None,
         human_approval: bool = True,
+        mcp_bridge=None,
     ):
         self.client = client or Anthropic()
         self.manager_model = manager_model
@@ -53,9 +59,11 @@ class Engine:
         self.spending = spending_guard or SpendingGuard()
         self.audit = audit or AuditLog()
         self.human_approval = human_approval
+        self.mcp_bridge = mcp_bridge
         self.station = Station(
             self.client, worker_model=worker_model,
             emitter=self.emitter, permissions=self.permissions,
+            mcp_bridge=mcp_bridge,
         )
         self.quality_gate = QualityGate(
             self.client, checker_model=checker_model, emitter=self.emitter,

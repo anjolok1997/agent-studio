@@ -1,14 +1,15 @@
 """
 Agent Studio — Launch
 
-Interactive launcher for Agent Studio. Pick a template, customize your goal,
-and let specialist agents do the work.
+Interactive launcher for Agent Studio. Pick a template, provide materials,
+customize your goal, and let specialist agents do the work.
 
 Run:
     python3 launch.py
-    python3 launch.py --execute          # Enable real actions (requires approval)
-    python3 launch.py --no-approval      # Skip human approval for subtasks
-    python3 launch.py --token-limit 100000  # Set spending cap
+    python3 launch.py --execute              # Enable real actions (requires approval)
+    python3 launch.py --no-approval          # Skip human approval for subtasks
+    python3 launch.py --token-limit 100000   # Set spending cap
+    python3 launch.py --mcp-config mcp.yaml  # Connect to MCP servers for real tools
 """
 
 import argparse
@@ -61,14 +62,86 @@ def print_menu(templates: list[dict]):
     print(f"{BOLD}Select a project template:{RESET}\n")
     for i, t in enumerate(templates, 1):
         agents_str = ", ".join(t["agents"])
+        materials_count = len(t.get("materials", []))
+        materials_hint = f" | {materials_count} inputs suggested" if materials_count else ""
+
         print(f"  {BOLD}{CYAN}{i}.{RESET} {BOLD}{t['name']}{RESET}")
         print(f"     {DIM}{t['description']}{RESET}")
-        print(f"     {MAGENTA}Team: {agents_str}{RESET}")
+        print(f"     {MAGENTA}Team: {agents_str}{materials_hint}{RESET}")
         print()
 
     print(f"  {BOLD}{CYAN}0.{RESET} {BOLD}Custom project{RESET}")
     print(f"     {DIM}Write your own goal and pick agents{RESET}")
     print()
+
+
+# ─── Material Collection ─────────────────────────────────────────────────────
+
+def collect_materials(template: dict) -> str:
+    """
+    Prompt user for materials defined in the template.
+    Returns a formatted string to prepend to the goal.
+    """
+    materials_spec = template.get("materials")
+    if not materials_spec:
+        return ""
+
+    print(f"\n{BOLD}Provide materials for better results:{RESET}")
+    print(f"{DIM}(Press Enter to skip optional fields){RESET}\n")
+
+    collected = []
+
+    for mat in materials_spec:
+        label = mat["label"]
+        hint = mat.get("hint", "")
+        mat_type = mat.get("type", "text")
+        required = mat.get("required", False)
+
+        req_tag = f" {RED}(required){RESET}" if required else ""
+        print(f"  {CYAN}{label}{RESET}{req_tag}")
+        if hint:
+            print(f"  {DIM}{hint}{RESET}")
+
+        while True:
+            if mat_type == "file":
+                value = input(f"  {BOLD}File path: {RESET}").strip()
+                if value:
+                    file_path = Path(value).expanduser()
+                    if file_path.exists():
+                        try:
+                            content = file_path.read_text()
+                            collected.append(f"[{label}] (from {file_path.name}):\n{content}")
+                            print(f"  {GREEN}Loaded {len(content)} chars from {file_path.name}{RESET}")
+                        except Exception as e:
+                            print(f"  {RED}Could not read file: {e}{RESET}")
+                            if required:
+                                continue
+                    else:
+                        print(f"  {RED}File not found: {value}{RESET}")
+                        if required:
+                            continue
+                elif required:
+                    print(f"  {RED}This field is required.{RESET}")
+                    continue
+            else:
+                value = input(f"  {BOLD}> {RESET}").strip()
+                if value:
+                    collected.append(f"[{label}]: {value}")
+                elif required:
+                    print(f"  {RED}This field is required.{RESET}")
+                    continue
+
+            print()
+            break
+
+    if not collected:
+        return ""
+
+    materials_text = "=== PROVIDED MATERIALS ===\n"
+    materials_text += "\n\n".join(collected)
+    materials_text += "\n=== END MATERIALS ==="
+
+    return materials_text
 
 
 def pick_custom_agents() -> tuple:
@@ -117,6 +190,10 @@ def parse_args():
         choices=["dev", "staging", "prod"],
         help="Target environment (default: dev)"
     )
+    parser.add_argument(
+        "--mcp-config", type=str, default="mcp_config.yaml",
+        help="Path to MCP server config (default: mcp_config.yaml)"
+    )
     return parser.parse_args()
 
 
@@ -135,7 +212,23 @@ def main():
     spending = SpendingGuard(max_tokens=args.token_limit)
     audit = AuditLog()
 
+    # Set up MCP bridge (optional)
+    mcp_bridge = None
+    mcp_config_path = Path(args.mcp_config)
+    if mcp_config_path.exists():
+        try:
+            from studio.mcp_bridge import MCPBridge
+            mcp_bridge = MCPBridge(mcp_config_path, permissions)
+            mcp_bridge.connect_all()
+        except ImportError:
+            print(f"  {DIM}MCP config found but 'mcp' package not installed. Running without MCP.{RESET}")
+        except Exception as e:
+            print(f"  {YELLOW}MCP setup failed: {e}. Running without MCP.{RESET}")
+
     print_banner(permissions.get_mode_label())
+
+    if mcp_bridge and mcp_bridge.connected_servers:
+        print(f"  {GREEN}MCP: Connected to {len(mcp_bridge.connected_servers)} server(s): {', '.join(mcp_bridge.connected_servers)}{RESET}\n")
 
     # Warn if running without human approval
     if args.no_approval:
@@ -170,6 +263,7 @@ def main():
         print("Invalid choice.")
         sys.exit(1)
 
+    template = None
     if idx == 0:
         goal, agents = pick_custom_agents()
     elif 1 <= idx <= len(templates):
@@ -184,6 +278,15 @@ def main():
         print("Invalid choice.")
         sys.exit(1)
 
+    # Collect materials if template defines them
+    materials_text = ""
+    if template:
+        materials_text = collect_materials(template)
+
+    # Prepend materials to goal
+    if materials_text:
+        goal = f"{materials_text}\n\n{goal}"
+
     print(f"\n{GREEN}Launching Agent Studio...{RESET}")
     print(f"{DIM}Team: {', '.join(agents)}{RESET}\n")
 
@@ -192,6 +295,7 @@ def main():
         spending_guard=spending,
         audit=audit,
         human_approval=not args.no_approval,
+        mcp_bridge=mcp_bridge,
     )
     result = engine.run(goal, allowed_agents=agents)
 
@@ -209,6 +313,10 @@ def main():
         for i, a in enumerate(result["artifacts"], 1):
             print(f"\n{CYAN}--- [{i}] From {a['agent']} ---{RESET}")
             print(a["content"])
+
+    # Cleanup
+    if mcp_bridge:
+        mcp_bridge.disconnect_all()
 
 
 if __name__ == "__main__":

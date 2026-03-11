@@ -9,3 +9,17 @@ goal: >
   roadmap with prerequisites, concept explanations with real-world analogies,
   key term glossary, practice questions with answers, and a recommended
   study schedule.
+materials:
+  - label: "Topic or subject area"
+    type: text
+    hint: "e.g., 'Distributed systems for cloud computing exam' or 'Organic chemistry reactions'"
+    required: true
+  - label: "Your current level"
+    type: text
+    hint: "beginner, intermediate, or advanced"
+  - label: "Existing notes or textbook excerpts"
+    type: file
+    hint: "Path to a .txt, .md, or .pdf file with your notes"
+  - label: "Exam format or learning objectives"
+    type: text
+    hint: "e.g., 'Multiple choice exam covering chapters 5-8' or 'Need to understand CAP theorem'"

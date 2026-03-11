@@ -1,0 +1,45 @@
+# MCP Server Configuration
+# Copy this to mcp_config.yaml and configure your servers.
+# Agent Studio will auto-detect and connect to configured servers.
+#
+# Tool risk levels are inferred automatically from tool names:
+#   read/list/search/get/query → safe
+#   write/create/update/send   → sensitive (requires approval in execute mode)
+#   delete/drop/execute/run    → dangerous (blocked in dry-run mode)
+#
+# Override with tool_risks if needed.
+
+servers:
+  # Filesystem access — read/write files in a specific directory
+  # filesystem:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+  #   tool_risks:
+  #     read_file: safe
+  #     write_file: sensitive
+  #     delete_file: dangerous
+
+  # PostgreSQL database access
+  # database:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-postgres"]
+  #   env:
+  #     DATABASE_URL: "postgresql://user:pass@localhost:5432/mydb"
+  #   tool_risks:
+  #     query: safe
+  #     execute: dangerous
+
+  # GitHub access
+  # github:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_TOKEN: "ghp_your_token_here"
+
+  # Custom HTTP-based MCP server
+  # custom:
+  #   transport: sse
+  #   url: "http://localhost:8080/mcp"

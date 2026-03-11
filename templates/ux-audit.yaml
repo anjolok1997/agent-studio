@@ -9,3 +9,14 @@ goal: >
   identify friction points, evaluate against accessibility standards (WCAG 2.1)
   and usability heuristics (Nielsen's 10), and produce prioritized recommendations
   with severity ratings.
+materials:
+  - label: "Product or feature description"
+    type: text
+    hint: "e.g., 'Mobile banking app onboarding flow — 5 screens from download to first transaction'"
+    required: true
+  - label: "Screenshots or wireframes"
+    type: file
+    hint: "Path to images or a design file"
+  - label: "Known user complaints"
+    type: text
+    hint: "e.g., 'Users drop off at step 3, confusion about verification process'"
