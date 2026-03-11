@@ -1,191 +1,194 @@
 # Agent Studio
 
-A multi-agent AI platform that assembles specialist teams to tackle any project. Pick a template, customize your goal, and let the agents do the work.
+A multi-agent AI platform that assembles specialist teams to tackle any project — from data engineering to education, UX design, business analysis, and more. Pick a template, customize your goal, and let the agents do the work.
 
 Built with the [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python).
 
 ---
 
-## Quick Start
+## Setup
 
-### 1. Clone the repo
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/anjolok1997/agent-studio.git
 cd agent-studio
-```
-
-### 2. Install dependencies
-
-```bash
 pip3 install -r requirements.txt
 ```
 
-### 3. Set up your API key
-
-Create a `.env` file in the project root:
+### 2. Add your API key
 
 ```bash
 echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
 ```
 
-Get a key at [console.anthropic.com](https://console.anthropic.com).
+Get a key at [console.anthropic.com](https://console.anthropic.com). The `.env` file is gitignored — your key stays local and secure.
 
-> The `.env` file is gitignored — your key stays local and secure.
-
-### 4. Launch
+### 3. Launch
 
 ```bash
 python3 launch.py
 ```
 
-You'll see an interactive menu:
-
-```
-╔══════════════════════════════════════════════════════╗
-║               AGENT STUDIO                           ║
-║     Assemble your team. Pick a project. Launch.      ║
-╚══════════════════════════════════════════════════════╝
-
-Select a project template:
-
-  1. Code Review
-     Review code for quality, security, performance, and maintainability
-     Team: code-reviewer, backend-architect, project-manager
-
-  2. Data Pipeline Design
-     Design a batch or streaming data pipeline with orchestration and monitoring
-     Team: data-engineer, backend-architect, project-manager
-
-  3. Data Quality Framework
-     Build a data quality framework with tests, alerts, and data contracts
-     Team: data-quality, data-engineer, project-manager
-
-  4. Document Summarizer
-     Summarize documents, extract key points, and produce structured digests
-     Team: summarizer, project-manager
-
-  5. Research Assistant
-     Research a topic, compare approaches, and produce recommendations
-     Team: researcher, ai-engineer, project-manager
-
-  0. Custom project
-     Write your own goal and pick agents
-
-Select [0-5]:
-```
-
-Pick a number, optionally customize the goal, and the agents get to work.
+Pick a template, optionally customize the goal, approve each step, and get results.
 
 ---
 
-## How It Works
+## What Can You Do With It?
 
-```
-You → launch.py → pick a template → Engine assigns specialists → QA validates → results
-```
+### Study & Research
 
-**Architecture:**
+> "Create a study guide for distributed systems. Include prerequisites, concept explanations with analogies, and practice questions."
 
-```
-                        ┌─────────────────┐
-                        │     Engine       │
-                        │  (Manager Agent) │
-                        └────────┬────────┘
-                                 │ delegates subtasks
-              ┌──────────────────┼──────────────────┐
-              ▼                  ▼                   ▼
-        ┌──────────┐      ┌──────────┐        ┌──────────┐
-        │ Station  │      │ Station  │        │ Station  │
-        │ Worker A │      │ Worker B │        │ Worker C │
-        └─────┬────┘      └─────┬────┘        └─────┬────┘
-              │                  │                   │
-              ▼                  ▼                   ▼
-        ┌──────────────────────────────────────────────┐
-        │              Quality Gate                     │
-        │     (Reality Checker validates output)        │
-        │     Approved → accept | Rejected → retry 3×  │
-        └──────────────────────────────────────────────┘
-```
+**Template:** Study Guide Builder | **Team:** educator, researcher, summarizer
 
-1. **Engine** (Manager) breaks your goal into 2-4 subtasks
-2. **Station** (Workers) are specialist agents that execute each subtask
-3. **Quality Gate** (Reality Checker) validates every output before accepting it
-4. If output is rejected, the specialist retries up to 3 times with feedback
+> "Compare React, Vue, and Svelte for a new frontend project. Produce a recommendation with tradeoffs."
+
+**Template:** Research Assistant | **Team:** researcher, ai-engineer, project-manager
 
 ---
 
-## Project Structure
+### Data Engineering
+
+> "Design an hourly Airflow DAG that pulls from Postgres into Snowflake with incremental loads and monitoring."
+
+**Template:** Data Pipeline Design | **Team:** data-engineer, backend-architect, project-manager
+
+> "Build a data quality framework for our transactions table with dbt tests, alert thresholds, and data contracts."
+
+**Template:** Data Quality Framework | **Team:** data-quality, data-engineer, project-manager
+
+---
+
+### UX Design
+
+> "Audit the onboarding flow of our mobile app. Map the user journey, identify friction points, and check WCAG 2.1 compliance."
+
+**Template:** UX Audit | **Team:** ux-designer, analyst, project-manager
+
+---
+
+### Business & Analysis
+
+> "Analyze whether we should expand into the European market. Define KPIs, do a SWOT analysis, and give a recommendation."
+
+**Template:** Business Analysis | **Team:** analyst, researcher, project-manager
+
+---
+
+### Writing & Content
+
+> "Draft a technical blog post explaining how our recommendation engine works, aimed at a non-technical audience."
+
+**Template:** Content Creation | **Team:** writer, researcher, project-manager
+
+---
+
+### Code Review
+
+> "Review this FastAPI service for SQL injection, auth issues, N+1 queries, and test coverage gaps."
+
+**Template:** Code Review | **Team:** code-reviewer, backend-architect, project-manager
+
+---
+
+### Custom Projects
+
+Pick option `0` in the launcher to choose your own agents and write any goal.
+
+---
+
+## Safety & Controls
+
+Agent Studio includes built-in safeguards to keep you in control.
+
+### Human Approval (on by default)
+
+Before each subtask is delegated, you see what's about to happen and can **approve, reject, or edit** the task:
 
 ```
-agent-studio/
-├── studio/                  # Core engine
-│   ├── __init__.py          # Public API
-│   ├── engine.py            # Manager orchestration
-│   ├── station.py           # Worker execution
-│   ├── quality_gate.py      # QA validation + retry
-│   └── events.py            # Event emitter (for external visualizers)
-├── agents/                  # Specialist personas (.md files)
-│   ├── ai-engineer.md
-│   ├── backend-architect.md
-│   ├── code-reviewer.md
-│   ├── data-engineer.md
-│   ├── data-quality.md
-│   ├── project-manager.md
-│   ├── researcher.md
-│   ├── summarizer.md
-│   └── reality-checker.md   # QA agent (used by quality gate)
-├── templates/               # Project templates (.yaml files)
-│   ├── code-review.yaml
-│   ├── data-pipeline.yaml
-│   ├── data-quality.yaml
-│   ├── doc-summarizer.yaml
-│   └── research-assistant.yaml
-├── archive/                 # Previous versions (for reference)
-├── launch.py                # Interactive launcher
-├── requirements.txt
-├── .env                     # Your API key (gitignored)
-└── README.md
+  ────────────────────────────────────────────────────────
+  Delegation Request
+  Agent:   data-engineer
+  Task:    Design the Airflow DAG structure with task dependencies
+  ────────────────────────────────────────────────────────
+  Approve? [Y/n/edit]:
+```
+
+### Spending Cap
+
+Every run is capped at **100,000 tokens** by default. If the limit is hit, the run stops immediately. Override with `--token-limit`:
+
+```bash
+python3 launch.py --token-limit 200000
+```
+
+### Dry-Run Mode (default)
+
+Dangerous tools (database writes, deployments, shell commands) are **blocked by default**. Only enable with `--execute`:
+
+```bash
+python3 launch.py --execute --env staging
+```
+
+Production targeting requires explicit confirmation:
+
+```bash
+python3 launch.py --execute --env prod
+# WARNING: Execute mode targeting PRODUCTION.
+# Are you sure? [y/N]:
+```
+
+### Audit Log
+
+Every run is logged to `logs/` with full traceability: goal, agents used, delegations, approvals, token usage, and timestamps.
+
+### Tool Risk Classification
+
+| Risk Level | Examples | Dry-Run | Execute Mode |
+|---|---|---|---|
+| **Safe** | research, analyze | Allowed | Allowed |
+| **Sensitive** | draft_output, create_file | Allowed | Requires approval |
+| **Dangerous** | run_sql, deploy, shell_exec | Blocked | Requires approval |
+
+---
+
+## All Options
+
+```bash
+python3 launch.py                              # Default: dry-run + human approval + 100k cap
+python3 launch.py --no-approval                # Skip subtask approval (warns you first)
+python3 launch.py --execute --env dev          # Enable real actions in dev
+python3 launch.py --token-limit 50000          # Lower spending cap
+python3 launch.py --execute --env prod         # Production (requires confirmation)
 ```
 
 ---
 
-## Templates
-
-Templates are pre-built agent combinations for common tasks. Each one defines a name, description, team of agents, and a default goal.
-
-| Template | Team | Use Case |
-|---|---|---|
-| **Data Pipeline Design** | data-engineer, backend-architect, project-manager | Design batch/streaming pipelines, DAGs, monitoring |
-| **Data Quality Framework** | data-quality, data-engineer, project-manager | dbt tests, data contracts, alerting |
-| **Document Summarizer** | summarizer, project-manager | Summarize papers, reports, docs |
-| **Research Assistant** | researcher, ai-engineer, project-manager | Compare tools, research topics, produce recommendations |
-| **Code Review** | code-reviewer, backend-architect, project-manager | Security, performance, quality review |
-
-### Custom projects
-
-Pick option `0` in the launcher to:
-1. Choose your own agents from the available list
-2. Write any goal you want
-
----
-
-## Specialist Agents
+## Available Agents
 
 | Agent | Best For |
 |---|---|
 | `ai-engineer` | ML models, LLM pipelines, RAG, embeddings |
+| `analyst` | Data analysis, KPIs, business cases, SWOT |
 | `backend-architect` | APIs, databases, system design, infrastructure |
 | `code-reviewer` | Security review, performance, code quality |
 | `data-engineer` | Pipelines, Airflow, dbt, Spark, Kafka |
 | `data-quality` | dbt tests, data contracts, anomaly detection |
+| `educator` | Study guides, learning materials, explanations |
 | `project-manager` | Planning, milestones, risk registers |
 | `researcher` | Literature review, comparisons, recommendations |
 | `summarizer` | Document summaries, key-point extraction |
+| `ux-designer` | User flows, wireframes, accessibility audits |
+| `writer` | Blog posts, docs, proposals, technical writing |
 
-### Adding your own specialist
+---
 
-Drop a `.md` file in `agents/` — the system discovers it automatically:
+## Extend It
+
+### Add a new agent
+
+Drop a `.md` file in `agents/` — discovered automatically:
 
 ```markdown
 # Your Specialist Name
@@ -212,7 +215,7 @@ What they deliver.
 2. Step two
 ```
 
-### Adding a new template
+### Add a new template
 
 Create a `.yaml` file in `templates/`:
 
@@ -223,34 +226,12 @@ agents:
   - agent-one
   - agent-two
 goal: >
-  Default goal for this template. Be specific:
-  name the tools, the scale, the expected output.
+  Default goal. Be specific: name the tools, scale, and expected output.
 ```
 
----
+### Connect a visualizer
 
-## Tips for Better Results
-
-The more specific your goal, the better the output:
-
-| Vague | Specific |
-|---|---|
-| "Design a pipeline" | "Design an hourly Airflow DAG that pulls from Postgres into Snowflake using incremental loads" |
-| "Summarize this paper" | "Summarize the key findings, methodology, and limitations of this ML research paper in 500 words" |
-| "Review my code" | "Review this FastAPI service for SQL injection, auth issues, and N+1 query problems" |
-
----
-
-## Events API (for visualizers)
-
-Agent Studio emits events that external tools can listen to via WebSocket. This is how the [Agentic Kitchen Visualizer](https://github.com/anjolok1997/agentic-kitchen-pycharm) connects.
-
-Events emitted:
-- `engine.started` / `engine.completed` / `engine.delegating`
-- `worker.started` / `worker.completed` / `worker.tool_called` / `worker.blocked`
-- `qa.check_started` / `qa.approved` / `qa.rejected`
-
-To connect a visualizer, pass a WebSocket URL when creating the engine:
+Agent Studio emits events via WebSocket for external tools like the [Agentic Kitchen Visualizer](https://github.com/anjolok1997/agentic-kitchen-pycharm):
 
 ```python
 from studio import Engine, EventEmitter
@@ -260,7 +241,18 @@ engine = Engine(emitter=emitter)
 result = engine.run("Your goal here")
 ```
 
-If no visualizer is connected, events are silently ignored — zero overhead.
+No visualizer connected? Events are silently ignored — zero overhead.
+
+---
+
+## Tips for Better Results
+
+| Vague | Specific |
+|---|---|
+| "Design a pipeline" | "Design an hourly Airflow DAG that pulls from Postgres into Snowflake using incremental loads" |
+| "Help me study" | "Create a study guide for distributed systems covering CAP theorem, consensus algorithms, and replication" |
+| "Review my code" | "Review this FastAPI service for SQL injection, auth issues, and N+1 query problems" |
+| "Analyze the market" | "Compare AWS, GCP, and Azure for hosting our ML inference pipeline. Include cost estimates and latency" |
 
 ---
 
