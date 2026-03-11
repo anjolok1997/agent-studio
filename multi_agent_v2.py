@@ -20,8 +20,10 @@ Run:  python3 multi_agent_v2.py
 import json
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from anthropic import Anthropic
 
+load_dotenv()
 client = Anthropic()
 
 # ─── Agent Registry ────────────────────────────────────────────────────────────
