@@ -1,0 +1,11 @@
+name: "UX Audit"
+description: "Evaluate a product's user experience, accessibility, and usability"
+agents:
+  - ux-designer
+  - analyst
+  - project-manager
+goal: >
+  Conduct a UX audit of the described product or feature. Map the user journey,
+  identify friction points, evaluate against accessibility standards (WCAG 2.1)
+  and usability heuristics (Nielsen's 10), and produce prioritized recommendations
+  with severity ratings.

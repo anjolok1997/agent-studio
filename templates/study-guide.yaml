@@ -1,0 +1,11 @@
+name: "Study Guide Builder"
+description: "Create structured study materials, summaries, and practice questions for any topic"
+agents:
+  - educator
+  - researcher
+  - summarizer
+goal: >
+  Create a comprehensive study guide for the given topic. Include a learning
+  roadmap with prerequisites, concept explanations with real-world analogies,
+  key term glossary, practice questions with answers, and a recommended
+  study schedule.

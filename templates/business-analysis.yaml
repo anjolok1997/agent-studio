@@ -1,0 +1,10 @@
+name: "Business Analysis"
+description: "Analyze a business problem, define metrics, and produce actionable recommendations"
+agents:
+  - analyst
+  - researcher
+  - project-manager
+goal: >
+  Analyze the described business problem. Define success metrics and KPIs,
+  research comparable approaches, produce a SWOT analysis, and deliver
+  actionable recommendations with estimated impact and implementation steps.

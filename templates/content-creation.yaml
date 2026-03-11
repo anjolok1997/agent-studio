@@ -1,0 +1,10 @@
+name: "Content Creation"
+description: "Draft blog posts, articles, documentation, or business proposals"
+agents:
+  - writer
+  - researcher
+  - project-manager
+goal: >
+  Create polished written content on the given topic. Research the subject,
+  outline the structure, draft the content with appropriate tone for the
+  target audience, and produce a final version ready for review.
