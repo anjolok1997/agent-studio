@@ -2,7 +2,9 @@
 Planner — Lightweight planning phase before execution.
 
 Uses a cheap model (Haiku) to break the goal into subtasks,
-estimate cost/time, and detect infrastructure keywords.
+estimate cost/time, detect infrastructure keywords, and assess
+material size impact on token usage.
+
 The user reviews the full plan before any expensive execution begins.
 """
 
@@ -23,7 +25,7 @@ RESET = "\033[0m"
 
 # ─── Cost and Time Estimates ─────────────────────────────────────────────────
 
-# Approximate tokens per subtask (worker call + QA check)
+# Approximate tokens per subtask (worker call + QA check), excluding material
 TOKENS_PER_SUBTASK = {
     "claude-haiku-4-5-20251001": 8_000,
     "claude-sonnet-4-6": 15_000,
@@ -43,6 +45,16 @@ COST_PER_MILLION = {
     "claude-sonnet-4-6": 9.00,
     "claude-opus-4-6": 30.00,
 }
+
+# Context window limits per model
+CONTEXT_LIMITS = {
+    "claude-haiku-4-5-20251001": 200_000,
+    "claude-sonnet-4-6": 200_000,
+    "claude-opus-4-6": 200_000,
+}
+
+# Approximate chars per token (for estimating material token count)
+CHARS_PER_TOKEN = 4
 
 # Infrastructure keywords to detect
 INFRA_KEYWORDS = {
@@ -69,16 +81,90 @@ def _detect_infra(text: str) -> list[str]:
     return found
 
 
-def _estimate_tokens(num_subtasks: int, worker_model: str, manager_model: str) -> int:
-    """Estimate total tokens for the run."""
+def _estimate_material_tokens(goal: str) -> int:
+    """Estimate how many tokens the materials in the goal will consume."""
+    # Check if there are embedded materials
+    if "=== PROVIDED MATERIALS ===" not in goal:
+        return 0
+    # Extract material section
+    start = goal.index("=== PROVIDED MATERIALS ===")
+    end = goal.index("=== END MATERIALS ===") + len("=== END MATERIALS ===") if "=== END MATERIALS ===" in goal else len(goal)
+    material_text = goal[start:end]
+    return len(material_text) // CHARS_PER_TOKEN
+
+
+def _assess_material_size(material_tokens: int, worker_model: str) -> dict:
+    """
+    Assess material size and flag potential issues.
+    Returns warnings and recommendations.
+    """
+    context_limit = CONTEXT_LIMITS.get(worker_model, 200_000)
+    result = {
+        "material_tokens": material_tokens,
+        "size_label": "none",
+        "warnings": [],
+        "recommendations": [],
+    }
+
+    if material_tokens == 0:
+        return result
+
+    if material_tokens < 5_000:
+        result["size_label"] = "small"
+    elif material_tokens < 50_000:
+        result["size_label"] = "medium"
+    elif material_tokens < 150_000:
+        result["size_label"] = "large"
+        result["warnings"].append(
+            f"Large material (~{material_tokens:,} tokens). Each subtask will include this context."
+        )
+        result["recommendations"].append(
+            "Consider summarizing the material first, then running detailed tasks on the summary."
+        )
+    else:
+        result["size_label"] = "very large"
+        result["warnings"].append(
+            f"Very large material (~{material_tokens:,} tokens). May exceed context window ({context_limit:,} tokens)."
+        )
+        result["recommendations"].append(
+            "Split the document into sections and run separate sessions per section."
+        )
+        result["recommendations"].append(
+            "Or use the Document Summarizer template first to create a digest, then work from that."
+        )
+
+    # Check if material alone approaches context limit
+    if material_tokens > context_limit * 0.6:
+        result["warnings"].append(
+            f"Material uses {material_tokens * 100 // context_limit}% of the context window. "
+            f"Workers will have limited room for reasoning."
+        )
+
+    return result
+
+
+def _estimate_tokens(num_subtasks: int, worker_model: str, manager_model: str,
+                     material_tokens: int = 0) -> int:
+    """Estimate total tokens for the run, including material overhead."""
     manager_tokens = TOKENS_PER_SUBTASK.get(manager_model, 15_000)
     worker_tokens = TOKENS_PER_SUBTASK.get(worker_model, 8_000)
-    return manager_tokens + (num_subtasks * worker_tokens)
+
+    # Material is sent with each worker call + the manager call
+    material_overhead = material_tokens * (num_subtasks + 1)
+
+    return manager_tokens + (num_subtasks * worker_tokens) + material_overhead
 
 
-def _estimate_time(num_subtasks: int, worker_model: str) -> str:
+def _estimate_time(num_subtasks: int, worker_model: str, material_tokens: int = 0) -> str:
     """Estimate run time as a human-readable range."""
     secs = SECONDS_PER_SUBTASK.get(worker_model, 60)
+
+    # Large materials add processing time
+    if material_tokens > 50_000:
+        secs = int(secs * 1.5)
+    elif material_tokens > 150_000:
+        secs = int(secs * 2.5)
+
     low = num_subtasks * secs
     high = int(low * 1.5)  # Account for QA retries
     if low < 60:
@@ -114,9 +200,24 @@ class Planner:
         - subtasks: list of {agent_type, description}
         - token_estimate, cost_estimate, time_estimate
         - infrastructure: detected infra keywords
+        - material_assessment: size analysis and warnings
         - planning_tokens: tokens used for this planning call
         """
         self.emitter.emit("planner.started", {"goal": goal[:80]})
+
+        # Assess material size before the API call
+        material_tokens = _estimate_material_tokens(goal)
+        material_assessment = _assess_material_size(material_tokens, worker_model)
+
+        # Strip materials from the planning prompt to save tokens
+        # (planner only needs the goal, not the full document)
+        planning_goal = goal
+        if "=== PROVIDED MATERIALS ===" in goal:
+            # Keep a note about materials but not the full content
+            before = goal[:goal.index("=== PROVIDED MATERIALS ===")]
+            after = goal[goal.index("=== END MATERIALS ===") + len("=== END MATERIALS ==="):] if "=== END MATERIALS ===" in goal else ""
+            material_note = f"[User provided ~{material_tokens:,} tokens of reference material]"
+            planning_goal = f"{before}{material_note}{after}"
 
         response = self.client.messages.create(
             model=self.planner_model,
@@ -131,7 +232,7 @@ class Planner:
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Goal: {goal}\n\n"
+                    f"Goal: {planning_goal}\n\n"
                     f"Available specialists: {', '.join(allowed_agents)}\n\n"
                     f"Break this into 2-4 subtasks."
                 )
@@ -150,7 +251,6 @@ class Planner:
             if not line.upper().startswith("SUBTASK:"):
                 continue
             rest = line[len("SUBTASK:"):].strip()
-            # Extract [agent-type]
             match = re.match(r"\[([^\]]+)\]\s*(.*)", rest)
             if match:
                 agent_type = match.group(1).strip()
@@ -159,11 +259,10 @@ class Planner:
                     subtasks.append({"agent_type": agent_type, "description": description})
 
         if not subtasks:
-            # Fallback: couldn't parse structured output, estimate 3 subtasks
             subtasks = [{"agent_type": allowed_agents[0], "description": "(plan could not be parsed — will use default planning)"}]
 
         num_subtasks = len(subtasks)
-        token_est = _estimate_tokens(num_subtasks, worker_model, manager_model)
+        token_est = _estimate_tokens(num_subtasks, worker_model, manager_model, material_tokens)
         infra = _detect_infra(goal)
 
         self.emitter.emit("planner.completed", {"subtasks": num_subtasks})
@@ -173,8 +272,9 @@ class Planner:
             "num_subtasks": num_subtasks,
             "token_estimate": token_est,
             "cost_estimate": _estimate_cost(token_est, worker_model),
-            "time_estimate": _estimate_time(num_subtasks, worker_model),
+            "time_estimate": _estimate_time(num_subtasks, worker_model, material_tokens),
             "infrastructure": infra,
+            "material_assessment": material_assessment,
             "planning_tokens": planning_tokens,
             "raw_plan": plan_text,
         }
@@ -192,6 +292,21 @@ class Planner:
         for i, st in enumerate(plan["subtasks"], 1):
             print(f"    {CYAN}{i}.{RESET} [{BOLD}{st['agent_type']}{RESET}] {st['description']}")
 
+        # Material assessment
+        mat = plan.get("material_assessment", {})
+        if mat.get("material_tokens", 0) > 0:
+            size_label = mat["size_label"]
+            mat_tokens = mat["material_tokens"]
+            color = GREEN if size_label in ("small", "medium") else YELLOW if size_label == "large" else RED
+            print(f"\n{BOLD}  Materials:{RESET}")
+            print(f"    Size:          {color}{size_label}{RESET} (~{mat_tokens:,} tokens)")
+
+            for warning in mat.get("warnings", []):
+                print(f"    {YELLOW}Warning:{RESET} {warning}")
+
+            for rec in mat.get("recommendations", []):
+                print(f"    {CYAN}Tip:{RESET} {rec}")
+
         print(f"\n{BOLD}  Estimates:{RESET}")
         print(f"    AI cost:       {GREEN}{plan['cost_estimate']}{RESET}")
         print(f"    Tokens:        ~{plan['token_estimate']:,} / {token_limit:,} limit")
@@ -204,9 +319,10 @@ class Planner:
                 print(f"    {YELLOW}•{RESET} {infra}")
             print(f"    {DIM}Tip: check pricing at your cloud provider before implementing{RESET}")
 
+        # Warnings
         if plan["token_estimate"] > token_limit:
             print(f"\n  {RED}{BOLD}WARNING: Estimated tokens ({plan['token_estimate']:,}) exceed your limit ({token_limit:,}).{RESET}")
-            print(f"  {DIM}The run may be cut short. Consider raising --token-limit.{RESET}")
+            print(f"  {DIM}The run may be cut short. Consider raising --token-limit or reducing material size.{RESET}")
 
         print(f"\n{CYAN}{'='*60}{RESET}")
 
