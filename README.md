@@ -1,6 +1,6 @@
 # Agent Studio
 
-A multi-agent AI platform that assembles specialist teams to tackle any project — from data engineering to education, UX design, business analysis, and more. Pick a template, customize your goal, and let the agents do the work.
+A multi-agent AI platform that assembles specialist teams to tackle any project — from data engineering to education, UX design, business analysis, and more. Pick a template, review the execution plan, and let the agents do the work.
 
 Built with the [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python).
 
@@ -30,7 +30,65 @@ Get a key at [console.anthropic.com](https://console.anthropic.com). The `.env` 
 python3 launch.py
 ```
 
-Pick a template, optionally customize the goal, approve each step, and get results.
+You'll see a template menu, provide optional materials, review the execution plan with cost/time estimates, and approve before any expensive work begins.
+
+---
+
+## How It Works
+
+```
+1. Pick a template (or create a custom project)
+2. Provide materials (documents, context — guided by the template)
+3. Review the execution plan (subtasks, cost, time, token estimates)
+4. Approve the plan → agents execute
+5. After each subtask: checkpoint (continue / stop / redirect)
+6. Get final summary + artifacts
+```
+
+### Planning Phase
+
+Before any expensive work, a cheap planning call (Haiku) previews the full run:
+
+```
+  ══════════════════════════════════════════════════════════
+    EXECUTION PLAN
+  ══════════════════════════════════════════════════════════
+
+    Subtasks:
+      1. [data-engineer] Design the Airflow DAG structure
+      2. [backend-architect] Define Snowflake schema and incremental load logic
+      3. [project-manager] Create monitoring and alerting plan
+
+    Estimates:
+      AI cost:       ~$0.03
+      Tokens:        ~26,000 / 100,000 limit
+      Time:          ~2-3 minutes
+      Models:        Manager=claude-sonnet-4-6, Workers=claude-haiku-4-5-20251001
+
+    Infrastructure detected:
+      • Orchestration (airflow)
+      • Databases (postgres, snowflake)
+
+  ══════════════════════════════════════════════════════════
+    Proceed? [Y/n]:
+```
+
+### Checkpoints
+
+After each subtask completes, you see the result and can decide what happens next:
+
+```
+  ────────────────────────────────────────────────────────
+  Checkpoint — Subtask 1 complete
+  Agent:   data-engineer
+  Task:    Design the Airflow DAG structure
+  Output:  The DAG uses a modular task-group pattern with...
+  Tokens used: 8,234 / 100,000
+  ────────────────────────────────────────────────────────
+  Continue? [Y/n/redirect]:
+```
+
+Options: **continue** to the next subtask, **stop** early (keep partial results), or **redirect** with new instructions.
 
 ---
 
@@ -42,23 +100,11 @@ Pick a template, optionally customize the goal, approve each step, and get resul
 
 **Template:** Study Guide Builder | **Team:** educator, researcher, summarizer
 
-> "Compare React, Vue, and Svelte for a new frontend project. Produce a recommendation with tradeoffs."
-
-**Template:** Research Assistant | **Team:** researcher, ai-engineer, project-manager
-
----
-
 ### Data Engineering
 
 > "Design an hourly Airflow DAG that pulls from Postgres into Snowflake with incremental loads and monitoring."
 
 **Template:** Data Pipeline Design | **Team:** data-engineer, backend-architect, project-manager
-
-> "Build a data quality framework for our transactions table with dbt tests, alert thresholds, and data contracts."
-
-**Template:** Data Quality Framework | **Team:** data-quality, data-engineer, project-manager
-
----
 
 ### UX Design
 
@@ -66,15 +112,11 @@ Pick a template, optionally customize the goal, approve each step, and get resul
 
 **Template:** UX Audit | **Team:** ux-designer, analyst, project-manager
 
----
-
 ### Business & Analysis
 
 > "Analyze whether we should expand into the European market. Define KPIs, do a SWOT analysis, and give a recommendation."
 
 **Template:** Business Analysis | **Team:** analyst, researcher, project-manager
-
----
 
 ### Writing & Content
 
@@ -82,15 +124,11 @@ Pick a template, optionally customize the goal, approve each step, and get resul
 
 **Template:** Content Creation | **Team:** writer, researcher, project-manager
 
----
-
 ### Code Review
 
 > "Review this FastAPI service for SQL injection, auth issues, N+1 queries, and test coverage gaps."
 
 **Template:** Code Review | **Team:** code-reviewer, backend-architect, project-manager
-
----
 
 ### Custom Projects
 
@@ -98,30 +136,52 @@ Pick option `0` in the launcher to choose your own agents and write any goal.
 
 ---
 
+## Model Selection
+
+Choose different models for manager and worker agents based on your needs:
+
+| Model | Speed | Cost | Best For |
+|---|---|---|---|
+| `haiku` | Fastest | Cheapest | Simple tasks, summaries |
+| `sonnet` | Fast | Moderate | Complex reasoning, planning |
+| `opus` | Slower | Expensive | Deep analysis, nuanced tasks |
+
+```bash
+python3 launch.py --worker-model sonnet      # Use Sonnet for workers (default: haiku)
+python3 launch.py --manager-model opus        # Use Opus for manager (default: sonnet)
+python3 launch.py --show-models               # Show model details and exit
+```
+
+---
+
 ## Safety & Controls
 
-Agent Studio includes built-in safeguards to keep you in control.
+### Execution Plan (on by default)
 
-### Human Approval (on by default)
+Before spending tokens on workers, review the full plan with cost/time/token estimates. Skip with `--no-plan`.
 
-Before each subtask is delegated, you see what's about to happen and can **approve, reject, or edit** the task:
+### Checkpoints (on by default)
 
-```
-  ────────────────────────────────────────────────────────
-  Delegation Request
-  Agent:   data-engineer
-  Task:    Design the Airflow DAG structure with task dependencies
-  ────────────────────────────────────────────────────────
-  Approve? [Y/n/edit]:
-```
+After each subtask, review the result and decide: continue, stop, or redirect. Skip with `--no-checkpoints`.
 
 ### Spending Cap
 
-Every run is capped at **100,000 tokens** by default. If the limit is hit, the run stops immediately. Override with `--token-limit`:
+Every run is capped at **100,000 tokens** by default. If the limit is hit, the run stops immediately.
 
 ```bash
-python3 launch.py --token-limit 200000
+python3 launch.py --token-limit 50000         # Lower spending cap
 ```
+
+### Material Size Awareness
+
+When you provide large documents, the planner warns you about context window usage:
+
+| Size | Tokens | Action |
+|---|---|---|
+| Small | < 5,000 | No issues |
+| Medium | 5,000–50,000 | No issues |
+| Large | 50,000–150,000 | Warning + suggestion to summarize first |
+| Very Large | > 150,000 | Warning + suggestion to split into sections |
 
 ### Dry-Run Mode (default)
 
@@ -137,6 +197,14 @@ Production targeting requires explicit confirmation:
 python3 launch.py --execute --env prod
 # WARNING: Execute mode targeting PRODUCTION.
 # Are you sure? [y/N]:
+```
+
+### Per-Task Approval (optional)
+
+For extra control, approve each subtask individually before it runs:
+
+```bash
+python3 launch.py --approve-each
 ```
 
 ### Audit Log
@@ -156,11 +224,17 @@ Every run is logged to `logs/` with full traceability: goal, agents used, delega
 ## All Options
 
 ```bash
-python3 launch.py                              # Default: dry-run + human approval + 100k cap
-python3 launch.py --no-approval                # Skip subtask approval (warns you first)
+python3 launch.py                              # Default: plan → approve → execute → checkpoints
+python3 launch.py --worker-model sonnet        # Use Sonnet for workers
+python3 launch.py --manager-model opus         # Use Opus for manager
+python3 launch.py --approve-each               # Approve each subtask individually
+python3 launch.py --no-plan                    # Skip planning phase
+python3 launch.py --no-checkpoints             # Skip post-subtask checkpoints
 python3 launch.py --execute --env dev          # Enable real actions in dev
 python3 launch.py --token-limit 50000          # Lower spending cap
+python3 launch.py --mcp-config mcp.yaml        # Connect to MCP servers
 python3 launch.py --execute --env prod         # Production (requires confirmation)
+python3 launch.py --show-models                # Show available models and exit
 ```
 
 ---
@@ -227,6 +301,21 @@ agents:
   - agent-two
 goal: >
   Default goal. Be specific: name the tools, scale, and expected output.
+materials:
+  - label: "Input name"
+    type: text        # or "file"
+    hint: "What to provide here"
+    required: false
+```
+
+### Connect to real tools via MCP
+
+Copy and edit the example config:
+
+```bash
+cp mcp_config.example.yaml mcp_config.yaml
+# Edit with your server details
+python3 launch.py --mcp-config mcp_config.yaml --execute
 ```
 
 ### Connect a visualizer

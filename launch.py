@@ -2,14 +2,15 @@
 Agent Studio — Launch
 
 Interactive launcher for Agent Studio. Pick a template, provide materials,
-customize your goal, and let specialist agents do the work.
+review the execution plan, and let specialist agents do the work.
 
 Run:
     python3 launch.py
-    python3 launch.py --execute              # Enable real actions (requires approval)
-    python3 launch.py --no-approval          # Skip human approval for subtasks
-    python3 launch.py --token-limit 100000   # Set spending cap
-    python3 launch.py --mcp-config mcp.yaml  # Connect to MCP servers for real tools
+    python3 launch.py --worker-model claude-sonnet-4-6    # Use Sonnet for workers
+    python3 launch.py --execute --env staging              # Enable real actions
+    python3 launch.py --approve-each                       # Approve every subtask individually
+    python3 launch.py --token-limit 50000                  # Lower spending cap
+    python3 launch.py --mcp-config mcp.yaml                # Connect to MCP servers
 """
 
 import argparse
@@ -21,6 +22,7 @@ import yaml
 from dotenv import load_dotenv
 
 from studio import Engine, list_available_agents, PermissionGuard, ExecutionMode, SpendingGuard, AuditLog
+from studio.planner import Planner
 
 load_dotenv()
 
@@ -36,6 +38,20 @@ YELLOW = "\033[33m"
 MAGENTA = "\033[35m"
 RED = "\033[31m"
 RESET = "\033[0m"
+
+# ─── Available Models ─────────────────────────────────────────────────────────
+
+MODELS = {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-4-6",
+}
+
+MODEL_INFO = {
+    "haiku":  {"speed": "fastest", "cost": "cheapest",  "best_for": "simple tasks, summaries"},
+    "sonnet": {"speed": "fast",    "cost": "moderate",  "best_for": "complex reasoning, planning"},
+    "opus":   {"speed": "slower",  "cost": "expensive", "best_for": "deep analysis, nuanced tasks"},
+}
 
 
 def load_templates() -> list[dict]:
@@ -75,13 +91,28 @@ def print_menu(templates: list[dict]):
     print()
 
 
+# ─── Model Selection ─────────────────────────────────────────────────────────
+
+def select_models(args) -> tuple:
+    """Resolve manager and worker model IDs from args."""
+    manager_model = MODELS.get(args.manager_model, args.manager_model)
+    worker_model = MODELS.get(args.worker_model, args.worker_model)
+    return manager_model, worker_model
+
+
+def print_model_menu():
+    """Show available models for user reference."""
+    print(f"\n{BOLD}Available models:{RESET}")
+    for name, info in MODEL_INFO.items():
+        model_id = MODELS[name]
+        print(f"  {CYAN}{name:8s}{RESET} {info['speed']:8s} | {info['cost']:10s} | Best for: {info['best_for']}")
+    print(f"  {DIM}Set with --manager-model and --worker-model{RESET}\n")
+
+
 # ─── Material Collection ─────────────────────────────────────────────────────
 
 def collect_materials(template: dict) -> str:
-    """
-    Prompt user for materials defined in the template.
-    Returns a formatted string to prepend to the goal.
-    """
+    """Prompt user for materials defined in the template."""
     materials_spec = template.get("materials")
     if not materials_spec:
         return ""
@@ -174,12 +205,28 @@ def pick_custom_agents() -> tuple:
 def parse_args():
     parser = argparse.ArgumentParser(description="Agent Studio — Interactive Launcher")
     parser.add_argument(
+        "--manager-model", type=str, default="sonnet",
+        help="Model for the manager agent: haiku, sonnet, opus (default: sonnet)"
+    )
+    parser.add_argument(
+        "--worker-model", type=str, default="haiku",
+        help="Model for worker agents: haiku, sonnet, opus (default: haiku)"
+    )
+    parser.add_argument(
         "--execute", action="store_true",
         help="Enable execute mode (allows real actions with approval)"
     )
     parser.add_argument(
-        "--no-approval", action="store_true",
-        help="Skip human approval for subtask delegations"
+        "--approve-each", action="store_true",
+        help="Approve each subtask individually instead of the full plan"
+    )
+    parser.add_argument(
+        "--no-plan", action="store_true",
+        help="Skip the planning phase and go straight to execution"
+    )
+    parser.add_argument(
+        "--no-checkpoints", action="store_true",
+        help="Skip checkpoints after each subtask (run without pausing)"
     )
     parser.add_argument(
         "--token-limit", type=int, default=100_000,
@@ -194,17 +241,28 @@ def parse_args():
         "--mcp-config", type=str, default="mcp_config.yaml",
         help="Path to MCP server config (default: mcp_config.yaml)"
     )
+    parser.add_argument(
+        "--show-models", action="store_true",
+        help="Show available models and exit"
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
 
+    if args.show_models:
+        print_model_menu()
+        sys.exit(0)
+
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(f"\n{YELLOW}Set your API key first:{RESET}")
         print("  export ANTHROPIC_API_KEY='sk-ant-...'")
         print(f"  {DIM}or add it to a .env file in this directory{RESET}\n")
         sys.exit(1)
+
+    # Resolve models
+    manager_model, worker_model = select_models(args)
 
     # Set up safety layers
     mode = ExecutionMode.EXECUTE if args.execute else ExecutionMode.DRY_RUN
@@ -230,16 +288,6 @@ def main():
     if mcp_bridge and mcp_bridge.connected_servers:
         print(f"  {GREEN}MCP: Connected to {len(mcp_bridge.connected_servers)} server(s): {', '.join(mcp_bridge.connected_servers)}{RESET}\n")
 
-    # Warn if running without human approval
-    if args.no_approval:
-        print(f"  {YELLOW}{BOLD}WARNING: Human approval is disabled.{RESET}")
-        print(f"  {DIM}Agents will delegate subtasks without asking for your confirmation.{RESET}")
-        confirm = input(f"  {BOLD}Continue? [y/N]: {RESET}").strip().lower()
-        if confirm not in ("y", "yes"):
-            print("Aborted.")
-            sys.exit(0)
-        print()
-
     # Warn if running in execute mode against production
     if args.execute and args.env == "prod":
         print(f"  {RED}{BOLD}WARNING: Execute mode targeting PRODUCTION.{RESET}")
@@ -254,6 +302,7 @@ def main():
         print("No templates found in templates/ directory.")
         sys.exit(1)
 
+    print(f"  {DIM}Models: Manager={manager_model}, Workers={worker_model}{RESET}\n")
     print_menu(templates)
 
     choice = input(f"{BOLD}Select [0-{len(templates)}]: {RESET}").strip()
@@ -278,25 +327,66 @@ def main():
         print("Invalid choice.")
         sys.exit(1)
 
-    # Collect materials if template defines them
+    # Collect materials
     materials_text = ""
     if template:
         materials_text = collect_materials(template)
-
-    # Prepend materials to goal
     if materials_text:
         goal = f"{materials_text}\n\n{goal}"
+
+    # ─── Planning Phase ───────────────────────────────────────────────────────
+
+    use_plan_approval = not args.no_plan and not args.approve_each
+
+    if use_plan_approval:
+        from anthropic import Anthropic
+        client = Anthropic()
+        planner = Planner(client)
+
+        print(f"\n{DIM}Planning... (using haiku){RESET}")
+        plan = planner.create_plan(goal, agents, worker_model, manager_model)
+
+        # Track planning tokens against spending cap
+        spending.track(plan["planning_tokens"], 0)
+
+        approved = planner.display_plan(plan, worker_model, manager_model, args.token_limit)
+        if not approved:
+            print("\nAborted. No tokens spent beyond planning.")
+            sys.exit(0)
+
+        # Use the same client for the engine
+        engine = Engine(
+            client=client,
+            manager_model=manager_model,
+            worker_model=worker_model,
+            permissions=permissions,
+            spending_guard=spending,
+            audit=audit,
+            human_approval=False,  # Plan was approved — no per-task approval
+            checkpoints=not args.no_checkpoints,
+            mcp_bridge=mcp_bridge,
+        )
+    else:
+        # --approve-each or --no-plan mode
+        human_approval = args.approve_each
+
+        if args.approve_each and not args.no_plan:
+            print(f"\n  {YELLOW}Per-task approval enabled. You will approve each delegation individually.{RESET}\n")
+
+        engine = Engine(
+            manager_model=manager_model,
+            worker_model=worker_model,
+            permissions=permissions,
+            spending_guard=spending,
+            audit=audit,
+            human_approval=human_approval,
+            checkpoints=not args.no_checkpoints,
+            mcp_bridge=mcp_bridge,
+        )
 
     print(f"\n{GREEN}Launching Agent Studio...{RESET}")
     print(f"{DIM}Team: {', '.join(agents)}{RESET}\n")
 
-    engine = Engine(
-        permissions=permissions,
-        spending_guard=spending,
-        audit=audit,
-        human_approval=not args.no_approval,
-        mcp_bridge=mcp_bridge,
-    )
     result = engine.run(goal, allowed_agents=agents)
 
     # ─── Output ───────────────────────────────────────────────────────────────
