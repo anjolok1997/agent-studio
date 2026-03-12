@@ -5,10 +5,28 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+dist/
+build/
 
 # Environment / secrets
 .env
 .env.*
+.env.local
+*.key
+*.pem
+*.crt
+*.p12
+secrets/
+credentials/
+*.credentials
+*.secret
+
+# API keys / tokens (catch common patterns)
+**/config.local.*
+**/local_settings.py
+
+# MCP config (may contain database URLs, tokens)
+mcp_config.yaml
 
 # Audit logs
 logs/
@@ -16,6 +34,13 @@ logs/
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Claude Code
 .claude/settings.local.json
