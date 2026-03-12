@@ -50,6 +50,7 @@ class Engine:
         spending_guard: SpendingGuard = None,
         audit: AuditLog = None,
         human_approval: bool = True,
+        checkpoints: bool = True,
         mcp_bridge=None,
     ):
         self.client = client or Anthropic()
@@ -59,7 +60,9 @@ class Engine:
         self.spending = spending_guard or SpendingGuard()
         self.audit = audit or AuditLog()
         self.human_approval = human_approval
+        self.checkpoints = checkpoints
         self.mcp_bridge = mcp_bridge
+        self._subtask_count = 0
         self.station = Station(
             self.client, worker_model=worker_model,
             emitter=self.emitter, permissions=self.permissions,
@@ -114,6 +117,35 @@ class Engine:
             new_task = input(f"  {BOLD}Revised task:{RESET}\n  > ").strip()
             return True, new_task if new_task else subtask
         return True, subtask
+
+    def _checkpoint(self, agent_type: str, subtask: str, result: str) -> str:
+        """
+        Checkpoint after a subtask completes. Shows the result and lets the
+        user continue, stop, or redirect.
+        Returns: "continue", "stop", or a revised instruction string.
+        """
+        if not self.checkpoints:
+            return "continue"
+
+        self._subtask_count += 1
+        ok, spend_msg = self.spending.check()
+
+        print(f"\n  {GREEN}{'─'*56}{RESET}")
+        print(f"  {BOLD}Checkpoint — Subtask {self._subtask_count} complete{RESET}")
+        print(f"  {CYAN}Agent:{RESET}   {agent_type}")
+        print(f"  {CYAN}Task:{RESET}    {subtask[:120]}")
+        print(f"  {CYAN}Output:{RESET}  {result[:200]}{'...' if len(result) > 200 else ''}")
+        print(f"  {DIM}{spend_msg}{RESET}")
+        print(f"  {GREEN}{'─'*56}{RESET}")
+
+        response = input(f"  {BOLD}Continue? [Y/n/redirect]: {RESET}").strip().lower()
+
+        if response in ("n", "no", "stop"):
+            return "stop"
+        if response in ("r", "redirect"):
+            redirect = input(f"  {BOLD}New direction for remaining tasks:{RESET}\n  > ").strip()
+            return redirect if redirect else "continue"
+        return "continue"
 
     def _check_spending(self, response) -> bool:
         """Track tokens and check spending limit."""
@@ -222,6 +254,23 @@ Choosing the right specialist matters. Pick the best fit for each subtask."""
                     agent_type=agent_type,
                     station=self.station,
                 )
+
+                # Checkpoint — user reviews result and decides next step
+                decision = self._checkpoint(agent_type, subtask, result)
+                if decision == "stop":
+                    print(f"\n{YELLOW}Stopped by user after subtask {self._subtask_count}.{RESET}")
+                    self.audit.log_run_complete("Stopped by user.", self.spending.tokens_used)
+                    log_file = self.audit.save()
+                    print(f"{DIM}Tokens used: {self.spending.tokens_used:,} | Audit log: {log_file}{RESET}\n")
+                    return {
+                        "summary": f"Stopped by user after {self._subtask_count} subtask(s). Partial results collected.",
+                        "artifacts": self.station.artifacts,
+                        "audit_log": str(log_file),
+                    }
+                if decision != "continue":
+                    # User redirected — append instruction for the manager
+                    result += f"\n\n[USER REDIRECT] The user wants to change direction: {decision}"
+
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,

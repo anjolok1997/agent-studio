@@ -225,6 +225,10 @@ def parse_args():
         help="Skip the planning phase and go straight to execution"
     )
     parser.add_argument(
+        "--no-checkpoints", action="store_true",
+        help="Skip checkpoints after each subtask (run without pausing)"
+    )
+    parser.add_argument(
         "--token-limit", type=int, default=100_000,
         help="Maximum tokens per run (default: 100,000)"
     )
@@ -359,6 +363,7 @@ def main():
             spending_guard=spending,
             audit=audit,
             human_approval=False,  # Plan was approved — no per-task approval
+            checkpoints=not args.no_checkpoints,
             mcp_bridge=mcp_bridge,
         )
     else:
@@ -375,6 +380,7 @@ def main():
             spending_guard=spending,
             audit=audit,
             human_approval=human_approval,
+            checkpoints=not args.no_checkpoints,
             mcp_bridge=mcp_bridge,
         )
 
