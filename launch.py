@@ -4,11 +4,11 @@ Agent Studio — Launch
 Interactive launcher for Agent Studio. Pick a template, provide materials,
 review the execution plan, and let specialist agents do the work.
 
-Default: Uses Claude subscription via CLI (no API key needed).
+Default: Signs in via Claude CLI (no API key needed).
 Use --api-key to switch to Anthropic SDK mode (pay-per-token).
 
 Run:
-    python3 launch.py                                      # Subscription mode (default)
+    python3 launch.py                                      # Claude CLI login (default)
     python3 launch.py --api-key                            # Use Anthropic API key instead
     python3 launch.py --supervised                         # Legacy: checkpoints + per-task approval
     python3 launch.py --worker-model sonnet                # Use Sonnet for workers
@@ -72,13 +72,13 @@ def load_templates() -> list[dict]:
     return templates
 
 
-def print_banner(mode_label: str):
+def print_banner(oversight_label: str):
     print(f"""
 {BOLD}{CYAN}╔══════════════════════════════════════════════════════╗
 ║               AGENT STUDIO                           ║
-║     Assemble your team. Pick a project. Launch.      ║
+║        Describe it. A team of AI gets it done.       ║
 ╚══════════════════════════════════════════════════════╝{RESET}
-  Mode: {mode_label}
+  {oversight_label}
 """)
 
 
@@ -109,12 +109,84 @@ def select_models(args) -> tuple:
 
 
 def print_model_menu():
-    """Show available models for user reference."""
+    """Show available models for user reference (--show-models flag)."""
     print(f"\n{BOLD}Available models:{RESET}")
     for name, info in MODEL_INFO.items():
         model_id = MODELS[name]
         print(f"  {CYAN}{name:8s}{RESET} {info['speed']:8s} | {info['cost']:10s} | Best for: {info['best_for']}")
     print(f"  {DIM}Set with --manager-model and --worker-model{RESET}\n")
+
+
+def suggest_agents(client, goal: str, loader: AgentLoader) -> list[str]:
+    """Use a quick LLM call to suggest the best agents for a goal."""
+    all_agents = loader.list_agents()
+
+    # Build a compact agent catalog for the prompt
+    catalog = []
+    for agent_id, info in sorted(all_agents.items()):
+        desc = info.description[:80] if info.description else info.name
+        catalog.append(f"- {agent_id}: {desc}")
+    catalog_text = "\n".join(catalog)
+
+    prompt = f"""Given this goal, pick 2-4 agents that would make the best team.
+
+GOAL: {goal}
+
+AVAILABLE AGENTS:
+{catalog_text}
+
+Respond with ONLY the agent IDs, one per line. Pick 2-4 agents. Nothing else."""
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=256,
+        system="You are a team builder. Pick the best specialist agents for the goal. Respond with only agent IDs, one per line.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    # Parse agent IDs from response
+    result_text = ""
+    for block in response.content:
+        if hasattr(block, "text"):
+            result_text = block.text
+            break
+
+    suggested = []
+    for line in result_text.strip().splitlines():
+        agent_id = line.strip().lstrip("- ").strip()
+        if agent_id in all_agents:
+            suggested.append(agent_id)
+
+    # Fallback if parsing failed
+    if not suggested:
+        suggested = ["researcher", "analyst", "writer"]
+
+    return suggested
+
+
+def pick_models_interactive(args) -> tuple:
+    """Interactive model selection. Returns (manager_model, worker_model)."""
+    # If user specified models via CLI flags, use those directly
+    if args.manager_model != "sonnet" or args.worker_model != "haiku":
+        return select_models(args)
+
+    print(f"\n{BOLD}Pick your speed:{RESET}\n")
+    print(f"  {CYAN}1.{RESET} {BOLD}Fast{RESET}        — Haiku workers, Sonnet manager")
+    print(f"     {DIM}Cheapest and fastest. Great for simple tasks.{RESET}")
+    print(f"  {CYAN}2.{RESET} {BOLD}Balanced{RESET}    — Haiku workers, Sonnet manager  {GREEN}(default){RESET}")
+    print(f"     {DIM}Good mix of speed and quality.{RESET}")
+    print(f"  {CYAN}3.{RESET} {BOLD}Powerful{RESET}    — Sonnet workers, Opus manager")
+    print(f"     {DIM}Best quality. Slower and costs more.{RESET}")
+    print()
+
+    choice = input(f"{BOLD}Select [1-3]{RESET} (Enter for default): ").strip()
+
+    if choice == "1":
+        return MODELS["haiku"], MODELS["haiku"]
+    elif choice == "3":
+        return MODELS["opus"], MODELS["sonnet"]
+    else:
+        return MODELS["sonnet"], MODELS["haiku"]
 
 
 # ─── Material Collection ─────────────────────────────────────────────────────
@@ -252,7 +324,7 @@ def parse_args():
     )
     parser.add_argument(
         "--api-key", action="store_true",
-        help="Use Anthropic API key (pay-per-token) instead of Claude subscription"
+        help="Use Anthropic API key (pay-per-token) instead of Claude CLI login"
     )
     parser.add_argument(
         "--execute", action="store_true",
@@ -315,10 +387,10 @@ def main():
     if args.no_checkpoints and not args.supervised:
         print(f"  {YELLOW}--no-checkpoints is deprecated. CEO mode (default) has no checkpoints.{RESET}")
 
-    # Determine client mode: subscription (default) vs API key
-    use_subscription = not args.api_key
+    # Determine auth method: Claude CLI (default) vs API key
+    use_cli = not args.api_key
 
-    if use_subscription:
+    if use_cli:
         if not shutil.which("claude"):
             print(f"\n  {RED}Claude CLI not found.{RESET}")
             print(f"  Install: npm install -g @anthropic-ai/claude-code")
@@ -326,21 +398,21 @@ def main():
             sys.exit(1)
         from studio.cli_client import CLIClient
         client = CLIClient()
-        print(f"  {GREEN}Subscription mode{RESET} — using Claude CLI (no API key needed)")
+        print(f"  {GREEN}Signed in via Claude CLI{RESET} (no API key needed)")
     else:
         load_dotenv()
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             print(f"\n  {RED}ANTHROPIC_API_KEY not set.{RESET}")
             print(f"  Set in .env file or environment variable.")
-            print(f"  Or use subscription mode (default): python3 launch.py\n")
+            print(f"  Or use Claude CLI login (default): python3 launch.py\n")
             sys.exit(1)
         from anthropic import Anthropic
         client = Anthropic()
         print(f"  {CYAN}API key mode{RESET} — using Anthropic SDK (pay-per-token)")
 
-    # Resolve models and oversight mode
-    manager_model, worker_model = select_models(args)
+    # Model selection
+    manager_model, worker_model = pick_models_interactive(args)
     oversight_mode = OversightMode.SUPERVISED if args.supervised else OversightMode.CEO
 
     # Set up safety layers
@@ -348,7 +420,7 @@ def main():
     permissions = PermissionGuard(mode=mode, environment=args.env, oversight=oversight_mode)
     spending = SpendingGuard(
         max_tokens=args.token_limit,
-        subscription_mode=use_subscription,
+        subscription_mode=use_cli,
     )
     audit = AuditLog()
 
@@ -365,8 +437,7 @@ def main():
         except Exception as e:
             print(f"  {YELLOW}MCP setup failed: {e}. Running without MCP.{RESET}")
 
-    print_banner(permissions.get_mode_label())
-    print(f"  Oversight: {permissions.get_oversight_label()}")
+    print_banner(permissions.get_oversight_label())
 
     if mcp_bridge and mcp_bridge.connected_servers:
         print(f"  {GREEN}MCP: Connected to {len(mcp_bridge.connected_servers)} server(s): {', '.join(mcp_bridge.connected_servers)}{RESET}\n")
@@ -380,37 +451,65 @@ def main():
             sys.exit(0)
         print()
 
+    # ─── Goal & Team Selection ─────────────────────────────────────────────
+
     templates = load_templates()
-    if not templates:
-        print("No templates found in templates/ directory.")
-        sys.exit(1)
+    loader = AgentLoader()
 
-    print(f"  {DIM}Models: Manager={manager_model}, Workers={worker_model}{RESET}\n")
-    print_menu(templates)
+    print(f"{BOLD}What do you want to do?{RESET}")
+    print(f"{DIM}Type 'templates' for pre-built projects, or 'pick' to choose agents manually.{RESET}\n")
 
-    choice = input(f"{BOLD}Select [0-{len(templates)}]: {RESET}").strip()
-    try:
-        idx = int(choice)
-    except ValueError:
-        print("Invalid choice.")
-        sys.exit(1)
+    user_input = input(f"{BOLD}> {RESET}").strip()
 
     template = None
-    if idx == 0:
+
+    if user_input.lower() in ("templates", "template", "t"):
+        # ── Template flow ──
+        print()
+        print_menu(templates)
+
+        choice = input(f"{BOLD}Select [1-{len(templates)}]: {RESET}").strip()
+        try:
+            idx = int(choice)
+        except ValueError:
+            print("Invalid choice.")
+            sys.exit(1)
+
+        if 1 <= idx <= len(templates):
+            template = templates[idx - 1]
+            print(f"\n{GREEN}Template: {template['name']}{RESET}")
+            print(f"{DIM}Default goal: {template['goal'][:100]}...{RESET}\n")
+
+            custom = input(f"{BOLD}Customize the goal?{RESET} (Enter to use default, or type your own)\n> ").strip()
+            goal = custom if custom else template["goal"]
+            agents = template["agents"]
+        else:
+            print("Invalid choice.")
+            sys.exit(1)
+
+    elif user_input.lower() in ("pick", "agents", "browse"):
+        # ── Manual agent picker ──
         goal, agents = pick_custom_agents()
-    elif 1 <= idx <= len(templates):
-        template = templates[idx - 1]
-        print(f"\n{GREEN}Template: {template['name']}{RESET}")
-        print(f"{DIM}Default goal: {template['goal'][:100]}...{RESET}\n")
 
-        custom = input(f"{BOLD}Customize the goal?{RESET} (Enter to use default, or type your own)\n> ").strip()
-        goal = custom if custom else template["goal"]
-        agents = template["agents"]
     else:
-        print("Invalid choice.")
-        sys.exit(1)
+        # ── Default: just type your goal and go ──
+        goal = user_input
+        if not goal:
+            print("No goal provided.")
+            sys.exit(1)
 
-    # Collect materials
+        print(f"\n{DIM}Assembling team...{RESET}")
+        agents = suggest_agents(client, goal, loader)
+
+        # Show the team briefly (no approval needed — just info)
+        agent_names = []
+        for agent_id in agents:
+            info = loader.get_agent(agent_id)
+            name = info.name if info else agent_id
+            agent_names.append(name)
+        print(f"  {GREEN}Team:{RESET} {', '.join(agent_names)}\n")
+
+    # Collect materials if using a template
     materials_text = ""
     if template:
         materials_text = collect_materials(template)
@@ -434,8 +533,7 @@ def main():
             sys.exit(0)
 
     if oversight_mode == OversightMode.CEO:
-        print(f"\n  {GREEN}CEO mode — agents will run autonomously.{RESET}")
-        print(f"  {DIM}You'll only be asked to approve dangerous or production-targeting actions.{RESET}\n")
+        print(f"\n  {GREEN}Agents working autonomously. You'll only be asked for critical actions.{RESET}\n")
 
     engine = Engine(
         client=client,

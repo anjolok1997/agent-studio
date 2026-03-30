@@ -1,8 +1,8 @@
 # Agent Studio
 
-Assemble a team of AI specialists, give them a goal, and let them work. You're the CEO — they handle the details and only come to you when it matters.
+Describe what you need. A team of AI specialists gets it done — fast and cheap.
 
-Works with your Claude subscription — no API key needed. Agent personas powered by [agency-agents](https://github.com/msitarzewski/agency-agents).
+Whether it's a quick task or a deep research project, Agent Studio breaks it down, picks the right specialists, and delivers results. You stay in control without micromanaging.
 
 ---
 
@@ -15,107 +15,84 @@ pip3 install -r requirements.txt
 python3 launch.py
 ```
 
-That's it. Agent Studio uses your Claude subscription via the [Claude CLI](https://claude.ai/code). If you haven't already, install and log in:
+Sign in via the [Claude CLI](https://claude.ai/code). If you haven't already:
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-### API Key Mode (alternative)
-
-If you prefer pay-per-token pricing via the Anthropic API:
-
-```bash
-echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
-python3 launch.py --api-key
-```
-
-Get a key at [console.anthropic.com](https://console.anthropic.com).
+That's it. No API key needed.
 
 ---
 
 ## How It Works
 
 ```
-1. Pick a template (or build a custom team)
-2. Provide materials (documents, context)
-3. Review the execution plan (cost, time, tokens)
-4. Agents run autonomously
-5. You only intervene for critical actions
-6. Get final summary + artifacts
+> Summarize this 50-page PDF and pull out the action items
+
+Assembling team...
+  Team: Summarizer, Researcher, Analyst
+
+Planning...
+  1. [summarizer] Extract key points from each section
+  2. [researcher] Cross-reference claims and flag gaps
+  3. [analyst] Compile action items with priorities
+
+Proceed? [Y/n]: y
+
+  ... agents working ...
+
+Done. 3 artifacts produced.
 ```
 
-### CEO Mode (default)
+Just describe what you need. Agent Studio:
+1. Picks the right specialists from 159 available agents
+2. Shows you the plan before any work starts
+3. Runs the team autonomously
+4. Delivers a summary + artifacts
 
-Agents work independently. You only get pulled in when something serious needs sign-off:
+### What can you use it for?
 
-| You get asked when... | Example |
+| Task | What happens |
 |---|---|
-| Dangerous tool call | `deploy`, `run_sql`, `shell_exec` |
-| Production target | Any write action when `--env prod` |
-| Spending threshold | 80% of token budget used |
-| Worker is stuck | Agent flags a blocker it can't resolve |
+| "Summarize this doc and list action items" | Summarizer extracts key points, analyst compiles actions |
+| "Design a data pipeline from Postgres to Snowflake" | Data engineer + backend architect + PM collaborate |
+| "Review this code for security issues" | Code reviewer + security engineer audit together |
+| "Research competitors and compare pricing" | Researcher + analyst produce a comparison table |
+| "Create a study guide for distributed systems" | Educator + researcher build structured materials |
+| "Write a blog post about our new feature" | Writer + researcher draft and fact-check |
 
-Everything else — task breakdown, research, drafting, QA — happens without interruption.
-
-### Supervised Mode (legacy)
-
-Want more control? Use `--supervised` for the old behavior: checkpoints after every subtask, per-delegation approval.
-
-```bash
-python3 launch.py --supervised
-```
+Works for quick tasks and deep projects alike.
 
 ---
 
 ## 159 Agents, Ready to Go
 
-Agent Studio ships with **147 specialist agents** from the [agency-agents](https://github.com/msitarzewski/agency-agents) library across 13 categories, plus **12 built-in agents** for common tasks.
+Agent Studio ships with **147 specialist agents** across 13 categories, plus **12 built-in agents**. The right team is assembled automatically based on what you ask for.
 
-| Category | Agents | Examples |
+| Category | Count | Examples |
 |---|---|---|
-| Engineering | 26 | Backend Architect, SRE, Security Engineer, DevOps |
-| Marketing | 29 | SEO Strategist, Content Marketer, Brand Voice |
-| Specialized | 28 | Legal Analyst, Financial Modeler, Grant Writer |
+| Engineering | 26 | Backend Architect, SRE, Security, DevOps, Frontend |
+| Marketing | 29 | SEO, Content, Social, Brand Voice, Email |
+| Specialized | 28 | Legal, Financial, Healthcare, Grant Writing |
 | Design | 8 | UX Architect, UI Designer, Brand Guardian |
-| Game Dev | 5 | Narrative Designer, Level Designer |
-| Sales | 8 | Account Strategist, Outreach Specialist |
-| Testing | 8 | QA Lead, Performance Tester, Accessibility |
-| + 6 more | ... | Academic, Product, Strategy, Support, ... |
+| Testing | 8 | QA Lead, Performance, Accessibility |
+| + 8 more | 48 | Academic, Product, Sales, Strategy, Support, ... |
 
-When you pick "Custom project", you'll see the full menu grouped by category:
+Type `pick` at launch to browse and hand-pick agents, or type `templates` for pre-built setups.
 
-```
-Available agents (147 library + 12 custom):
+Agent library from [agency-agents](https://github.com/msitarzewski/agency-agents) (MIT License).
 
-  engineering (26)
-      1. Backend Architect — Senior backend architect specializing in...
-      2. Code Reviewer — Expert code reviewer focused on...
-      3. Security Engineer — Application security specialist...
-      ...
+### Add your own
 
-  design (8)
-     27. UI Designer — ...
-     ...
-
-  custom (12)  <-- your local agents
-    148. backend-architect (local)
-     ...
-
-Enter agent numbers: 1,3,27
-Or type a category name: engineering
-```
-
-### Add Your Own Agents
-
-Drop a `.md` file in `agents/` — it's discovered automatically and overrides any library agent with the same name.
+Drop a `.md` file in `agents/`. Discovered automatically.
 
 ```markdown
-# Your Specialist Name
+# Your Specialist
 
 ## Identity
-Who this agent is and how they think.
+Who this agent is.
 
 ## Mission
 What they deliver.
@@ -123,127 +100,78 @@ What they deliver.
 ## Expertise
 - Skill 1
 - Skill 2
+```
 
-## Deliverables
-- Output 1
-- Output 2
+---
+
+## Pick Your Speed
+
+Choose at launch, or set via CLI flags:
+
+| Option | Manager | Workers | Best for |
+|---|---|---|---|
+| **Fast** | Haiku | Haiku | Quick tasks, summaries |
+| **Balanced** (default) | Sonnet | Haiku | Most tasks |
+| **Powerful** | Opus | Sonnet | Complex analysis, deep research |
+
+---
+
+## Built-in Safety
+
+Agent Studio is designed to be safe by default. You don't need to configure anything — protections are always on.
+
+| What | How |
+|---|---|
+| **Plan before action** | You see the full plan and approve before any work starts |
+| **Tools are sandboxed** | Dangerous operations (SQL, deploy, shell) are blocked unless you explicitly enable them |
+| **Spending limits** | Hard cap prevents runaway token usage |
+| **Quality checks** | A QA agent validates every output before it's finalized |
+| **Full audit trail** | Every decision logged to `logs/` — who did what, when, why |
+| **You approve what matters** | Agents only ask you for sign-off on critical actions (production, dangerous tools) |
+
+### Connecting to real systems
+
+By default, tools are simulated — nothing leaves the sandbox. To connect agents to real databases, APIs, or services:
+
+```bash
+python3 launch.py --execute --env dev          # Enable real actions in dev
+python3 launch.py --execute --env prod         # Production (extra confirmation required)
+python3 launch.py --mcp-config mcp.yaml --execute  # Connect via MCP
 ```
 
 ---
 
 ## Templates
 
-Templates are pre-built project configurations that pick the right agents for common tasks.
+Pre-built setups for common tasks. Type `templates` at launch.
 
 | Template | Team | Use Case |
 |---|---|---|
 | Study Guide Builder | educator, researcher, summarizer | Create study materials |
-| Data Pipeline Design | data-engineer, backend-architect, PM | Design Airflow/dbt pipelines |
-| UX Audit | ux-designer, analyst, PM | Audit user flows, accessibility |
-| Business Analysis | analyst, researcher, PM | Market analysis, SWOT, KPIs |
-| Content Creation | writer, researcher, PM | Blog posts, docs, proposals |
-| Code Review | code-reviewer, backend-architect, PM | Security, performance, quality |
-| Data Quality | data-quality, data-engineer, PM | dbt tests, data contracts |
-| Doc Summarizer | summarizer, researcher | Summarize large documents |
-| Research Assistant | researcher, analyst | Literature review, comparisons |
+| Data Pipeline Design | data-engineer, backend-architect, PM | Design pipelines |
+| UX Audit | ux-designer, analyst, PM | Audit user flows |
+| Business Analysis | analyst, researcher, PM | Market analysis, SWOT |
+| Content Creation | writer, researcher, PM | Blog posts, docs |
+| Code Review | code-reviewer, backend-architect, PM | Security, quality |
+| + 3 more | ... | Data quality, doc summary, research |
 
-Or pick **Custom project** to choose any agents and write your own goal.
-
-### Create a Template
-
-Add a `.yaml` file to `templates/`:
-
-```yaml
-name: "Your Template Name"
-description: "One-line description"
-agents:
-  - engineering-backend-architect
-  - engineering-security-engineer
-goal: >
-  Your default goal. Be specific about tools, scale, and output.
-materials:
-  - label: "Input name"
-    type: text
-    hint: "What to provide here"
-    required: false
-```
-
----
-
-## Model Selection
-
-| Model | Speed | Cost | Best For |
-|---|---|---|---|
-| `haiku` | Fastest | Cheapest | Simple tasks, summaries |
-| `sonnet` | Fast | Moderate | Complex reasoning, planning |
-| `opus` | Slower | Expensive | Deep analysis, nuanced tasks |
-
-```bash
-python3 launch.py --worker-model sonnet
-python3 launch.py --manager-model opus
-python3 launch.py --show-models
-```
-
----
-
-## Safety
-
-| Layer | What it does | Default |
-|---|---|---|
-| **Subscription Mode** | Uses Claude CLI — no API key needed | On |
-| **CEO Mode** | Agents run autonomously, escalate only for critical actions | On |
-| **Execution Plan** | Preview subtasks + cost/time estimates before spending tokens | On |
-| **Dry-Run Mode** | Dangerous tools blocked entirely | On |
-| **Spending Cap** | Hard limit on tokens per run (100k default) | On |
-| **Quality Gate** | QA agent validates every worker output | On |
-| **Audit Log** | Full trace of every decision in `logs/` | On |
-| **Tool Risk Classification** | Safe / Sensitive / Dangerous | On |
-
-### Tool Risk Levels
-
-| Risk | Examples | Dry-Run | Execute Mode |
-|---|---|---|---|
-| **Safe** | research, analyze | Allowed | Allowed |
-| **Sensitive** | draft_output, create_file | Allowed | Auto-approved (CEO) |
-| **Dangerous** | run_sql, deploy, shell_exec | Blocked | CEO approval required |
-
-### Execute Mode
-
-Enable real actions (tool calls go through MCP to real systems):
-
-```bash
-python3 launch.py --execute --env dev        # Dev environment
-python3 launch.py --execute --env staging    # Staging
-python3 launch.py --execute --env prod       # Production (extra warnings)
-```
-
----
-
-## Connect Real Tools (MCP)
-
-Use the [Model Context Protocol](https://modelcontextprotocol.io/) to connect agents to real databases, APIs, and services:
-
-```bash
-cp mcp_config.example.yaml mcp_config.yaml
-# Edit with your server details
-python3 launch.py --mcp-config mcp_config.yaml --execute
-```
+Or just describe what you need — no template required.
 
 ---
 
 ## All Options
 
 ```bash
-python3 launch.py                              # Subscription mode + CEO mode (default)
-python3 launch.py --api-key                    # Use Anthropic API key instead
-python3 launch.py --supervised                 # Legacy: checkpoints + approvals
-python3 launch.py --worker-model sonnet        # Sonnet for workers
-python3 launch.py --manager-model opus         # Opus for manager
-python3 launch.py --no-plan                    # Skip planning phase
-python3 launch.py --execute --env dev          # Enable real actions
+python3 launch.py                              # Just describe your task (default)
+python3 launch.py --api-key                    # Use Anthropic API key instead of CLI login
+python3 launch.py --supervised                 # Full control: approve every step
+python3 launch.py --worker-model sonnet        # Upgrade workers to Sonnet
+python3 launch.py --manager-model opus         # Upgrade manager to Opus
+python3 launch.py --no-plan                    # Skip the planning preview
+python3 launch.py --execute --env dev          # Enable real tool actions
 python3 launch.py --execute --env prod         # Production (requires confirmation)
 python3 launch.py --token-limit 50000          # Lower spending cap
-python3 launch.py --mcp-config mcp.yaml        # Connect to MCP servers
+python3 launch.py --mcp-config mcp.yaml        # Connect real tools via MCP
 python3 launch.py --show-models                # Show available models
 ```
 
@@ -251,17 +179,17 @@ python3 launch.py --show-models                # Show available models
 
 ## Documentation
 
-See the [`docs/`](docs/) folder for detailed documentation:
+See [`docs/`](docs/) for technical details:
 
-- [What is Agent Studio?](docs/what-is-agent-studio.md) — What this project does, key concepts, use cases
-- [Architecture Overview](docs/architecture.md) — System design and data flow
-- [Oversight Modes](docs/oversight.md) — CEO mode vs Supervised mode
-- [Agent System](docs/agents.md) — How agents are loaded, library vs local
-- [Safety & Permissions](docs/safety.md) — Tool risk, spending guards, audit
-- [Extending](docs/extending.md) — Add agents, templates, MCP servers, visualizers
+- [What is Agent Studio?](docs/what-is-agent-studio.md) — Overview and key concepts
+- [Architecture](docs/architecture.md) — System design and data flow
+- [Oversight Modes](docs/oversight.md) — How safety and approvals work
+- [Agent System](docs/agents.md) — Library agents, local agents, loading
+- [Safety](docs/safety.md) — Permissions, spending, audit
+- [Extending](docs/extending.md) — Add agents, templates, MCP, visualizers
 
 ---
 
 ## Credits
 
-Agent persona library from [agency-agents](https://github.com/msitarzewski/agency-agents) by [@msitarzewski](https://github.com/msitarzewski) (MIT License).
+Agent library from [agency-agents](https://github.com/msitarzewski/agency-agents) by [@msitarzewski](https://github.com/msitarzewski) (MIT License).

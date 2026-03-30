@@ -1,12 +1,12 @@
-# Oversight Modes
+# How Safety and Approvals Work
 
-Agent Studio has two oversight modes that control how much the human is involved during execution.
+Agent Studio keeps you in control without slowing you down. By default, agents handle everything and only check with you when it matters.
 
 ---
 
-## CEO Mode (default)
+## Default: Agents Work Autonomously
 
-The human is the CEO. Agents run autonomously and only escalate when something genuinely requires human judgment.
+Agents handle the task independently. You only get asked for approval when something genuinely needs human judgment.
 
 ```bash
 python3 launch.py                    # CEO mode is the default

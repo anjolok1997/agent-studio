@@ -1,16 +1,20 @@
 # What is Agent Studio?
 
-Agent Studio is a multi-agent AI platform that assembles teams of specialist AI agents to work on projects together. You give it a goal, it breaks the work into subtasks, assigns each subtask to the right specialist, validates the output, and delivers a final result.
+Agent Studio is a multi-agent AI tool that gets tasks done faster and cheaper than a single AI chat. Describe what you need, and a team of specialist agents handles it — from a quick summary to a deep research project.
 
-Think of it like a company where you're the CEO. You set the direction, and your team of specialists handles the execution. You only get pulled in when something important needs your sign-off.
+Instead of one long back-and-forth conversation with an AI, Agent Studio splits the work across focused specialists who each do their part. A manager coordinates, a QA agent checks the output, and you get the result.
 
 ---
 
 ## The Problem It Solves
 
-A single AI prompt can only do one thing at a time. For complex tasks — designing a data pipeline, auditing a UX flow, writing a business analysis — you need multiple perspectives working together: a researcher, an architect, a reviewer, a project manager.
+Using a single AI chat for complex tasks is slow, expensive, and messy. You end up re-prompting, losing context, and paying for a powerful model to do simple subtasks.
 
-Agent Studio automates this. Instead of prompting one agent repeatedly, you describe the goal once and let a team handle it.
+Agent Studio fixes this:
+- A cheap, fast model (Haiku) handles the focused subtasks
+- A smarter model (Sonnet/Opus) coordinates the big picture
+- Each specialist stays focused on what they're good at
+- Quality is checked automatically before results come back to you
 
 ---
 
@@ -73,42 +77,43 @@ In dry-run mode (default), tools return simulated responses. In execute mode (`-
 
 ### Safety
 
-Multiple layers prevent agents from doing anything unintended:
-- **Dry-run mode** blocks dangerous tools by default
-- **Tool risk classification** (safe / sensitive / dangerous)
-- **Spending cap** limits token usage per run
-- **CEO escalation** pauses for human approval on critical actions
-- **Audit log** records every decision for traceability
+Safety is built in — you don't need to think about it:
+- **Tools are sandboxed** — dangerous operations are blocked unless you explicitly enable them
+- **You see the plan first** — nothing runs until you approve
+- **Spending is capped** — hard limit prevents runaway usage
+- **Quality is checked** — a QA agent validates every output
+- **Everything is logged** — full audit trail in `logs/`
 
 ---
 
-## What Can You Build With It?
+## What Can You Use It For?
 
-| Use Case | Template | What You Get |
-|---|---|---|
-| Study materials | Study Guide Builder | Structured guide with prerequisites, explanations, practice questions |
-| Data pipeline design | Data Pipeline Design | DAG structure, schema definitions, monitoring plan |
-| UX audit | UX Audit | User journey map, friction points, accessibility findings |
-| Market analysis | Business Analysis | KPIs, SWOT analysis, recommendation |
-| Technical blog post | Content Creation | Drafted article with research backing |
-| Code security review | Code Review | Vulnerability findings, performance issues, test gaps |
-| Document summary | Doc Summarizer | Key points extracted from large documents |
-| Custom project | (pick your own team) | Whatever you need |
+| Task | What happens |
+|---|---|
+| "Summarize this doc and list action items" | Summarizer + analyst work together |
+| "Design a data pipeline from Postgres to Snowflake" | Data engineer + architect + PM collaborate |
+| "Review this code for security issues" | Code reviewer + security engineer audit it |
+| "Research competitors and compare pricing" | Researcher + analyst produce a comparison |
+| "Create a study guide for distributed systems" | Educator + researcher build structured materials |
+| "Write a blog post about our new feature" | Writer + researcher draft and fact-check |
+| Anything else | Describe it — the right team gets assembled |
+
+Works for quick tasks and deep research alike.
 
 ---
 
-## What It's Not
+## Good to Know
 
-- **Not an autonomous agent that takes real actions by default.** Dry-run mode is the default. Real actions require explicit opt-in (`--execute`).
-- **Not a chatbot.** You set a goal, agents execute, and you get results. It's task-oriented, not conversational.
-- **Not a code execution environment.** Agents reason and plan, but code execution happens through MCP tools connected to real systems, not inside Agent Studio itself.
+- **Safe by default.** Agents can research, analyze, and draft — but can't touch real systems unless you opt in with `--execute`.
+- **Task-oriented, not a chatbot.** You describe what you need, agents deliver results. No back-and-forth conversation.
+- **Real tool access is opt-in.** Connect to databases, APIs, and services via MCP when you're ready.
 
 ---
 
 ## Tech Stack
 
-- **LLM**: Claude — works with your subscription (default) or Anthropic API key
-- **CLI integration**: Uses the [Claude CLI](https://claude.ai/code) for subscription-based access
+- **LLM**: Claude — sign in via Claude CLI (default) or use an Anthropic API key
+- **CLI integration**: Uses the [Claude CLI](https://claude.ai/code) for authentication
 - **Language**: Python 3.9+
 - **Agent library**: [agency-agents](https://github.com/msitarzewski/agency-agents) (MIT License)
 - **Real tool integration**: MCP (Model Context Protocol)
