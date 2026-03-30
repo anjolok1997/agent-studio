@@ -69,6 +69,103 @@ INFRA_KEYWORDS = {
     "Monitoring": ["datadog", "grafana", "prometheus", "pagerduty", "opsgenie"],
 }
 
+# Suggested tools/MCP servers based on task content
+TOOL_SUGGESTIONS = {
+    # Database connectors
+    "postgres": {
+        "name": "PostgreSQL",
+        "mcp": "@modelcontextprotocol/server-postgres",
+        "use": "Query and inspect your Postgres database directly",
+    },
+    "mysql": {
+        "name": "MySQL",
+        "mcp": "@modelcontextprotocol/server-mysql",
+        "use": "Query and inspect your MySQL database",
+    },
+    "mongodb": {
+        "name": "MongoDB",
+        "mcp": "@anthropic-ai/server-mongodb",
+        "use": "Query your MongoDB collections",
+    },
+    "snowflake": {
+        "name": "Snowflake",
+        "mcp": "@modelcontextprotocol/server-snowflake",
+        "use": "Query your Snowflake warehouse",
+    },
+    "redis": {
+        "name": "Redis",
+        "mcp": "@modelcontextprotocol/server-redis",
+        "use": "Inspect keys and data in Redis",
+    },
+    # File and code access
+    "file": {
+        "name": "Filesystem",
+        "mcp": "@modelcontextprotocol/server-filesystem",
+        "use": "Read and write files on your local system",
+        "keywords": ["local file", "local folder", "pdf", "csv", "read file", "write file", "local document"],
+    },
+    "github": {
+        "name": "GitHub",
+        "mcp": "@modelcontextprotocol/server-github",
+        "use": "Access repos, PRs, issues, and code",
+        "keywords": ["github", "repo", "repository", "pull request", "code review"],
+    },
+    # Web and search
+    "web": {
+        "name": "Web Search",
+        "mcp": "@anthropic-ai/server-web-search",
+        "use": "Search the web for current information",
+        "keywords": ["search the web", "web search", "competitor", "market research", "latest news"],
+    },
+    "browser": {
+        "name": "Browser / Puppeteer",
+        "mcp": "@modelcontextprotocol/server-puppeteer",
+        "use": "Browse web pages, fill forms, extract data",
+        "keywords": ["browser", "chrome", "web page", "scrape", "form", "website", "screenshot"],
+    },
+    # Cloud and infra
+    "aws": {
+        "name": "AWS",
+        "mcp": "@aws/server-aws",
+        "use": "Manage AWS resources (S3, EC2, Lambda, etc.)",
+        "keywords": ["aws", "s3", "ec2", "lambda", "rds"],
+    },
+    # Communication
+    "slack": {
+        "name": "Slack",
+        "mcp": "@modelcontextprotocol/server-slack",
+        "use": "Read channels, send messages, search conversations",
+        "keywords": ["slack", "channel", "message", "team", "notify"],
+    },
+    "email": {
+        "name": "Email / Gmail",
+        "mcp": "@anthropic-ai/server-gmail",
+        "use": "Read and send emails",
+        "keywords": ["email", "gmail", "mail", "send", "inbox"],
+    },
+}
+
+
+def _suggest_tools(text: str) -> list[dict]:
+    """Suggest tools and MCP servers based on the task description."""
+    text_lower = text.lower()
+    suggestions = []
+    seen = set()
+
+    for key, tool in TOOL_SUGGESTIONS.items():
+        keywords = tool.get("keywords", [key])
+        matched = False
+        for kw in keywords:
+            # Use word boundary check to avoid partial matches (e.g. "repo" in "report")
+            if f" {kw} " in f" {text_lower} " or f" {kw}." in f" {text_lower}." or text_lower.startswith(kw) or text_lower.endswith(kw):
+                matched = True
+                break
+        if matched and tool["name"] not in seen:
+            seen.add(tool["name"])
+            suggestions.append(tool)
+
+    return suggestions
+
 
 def _detect_infra(text: str) -> list[str]:
     """Detect infrastructure keywords in the goal text. Zero API calls."""
@@ -264,6 +361,7 @@ class Planner:
         num_subtasks = len(subtasks)
         token_est = _estimate_tokens(num_subtasks, worker_model, manager_model, material_tokens)
         infra = _detect_infra(goal)
+        tool_suggestions = _suggest_tools(goal)
 
         self.emitter.emit("planner.completed", {"subtasks": num_subtasks})
 
@@ -274,6 +372,7 @@ class Planner:
             "cost_estimate": _estimate_cost(token_est, worker_model),
             "time_estimate": _estimate_time(num_subtasks, worker_model, material_tokens),
             "infrastructure": infra,
+            "tool_suggestions": tool_suggestions,
             "material_assessment": material_assessment,
             "planning_tokens": planning_tokens,
             "raw_plan": plan_text,
@@ -317,7 +416,16 @@ class Planner:
             print(f"\n{BOLD}  Infrastructure detected:{RESET}")
             for infra in plan["infrastructure"]:
                 print(f"    {YELLOW}•{RESET} {infra}")
-            print(f"    {DIM}Tip: check pricing at your cloud provider before implementing{RESET}")
+
+        # Tool suggestions
+        tool_suggestions = plan.get("tool_suggestions", [])
+        if tool_suggestions:
+            print(f"\n{BOLD}  Suggested tools:{RESET}")
+            print(f"    {DIM}Connect these for better results (optional):{RESET}")
+            for tool in tool_suggestions:
+                print(f"    {GREEN}•{RESET} {BOLD}{tool['name']}{RESET} — {tool['use']}")
+                print(f"      {DIM}npx {tool['mcp']}{RESET}")
+            print(f"\n    {DIM}Add to mcp_config.yaml and rerun with --execute to enable.{RESET}")
 
         # Warnings
         if plan["token_estimate"] > token_limit:
