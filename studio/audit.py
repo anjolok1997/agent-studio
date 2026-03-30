@@ -68,6 +68,13 @@ class AuditLog:
             "model": model,
         })
 
+    def log_escalation(self, reason: str, context: dict, decision: str):
+        self.log("escalation", {
+            "reason": reason,
+            "context": context,
+            "decision": decision,
+        })
+
     def log_run_complete(self, summary: str, total_tokens: int):
         self.log("run.completed", {
             "summary_length": len(summary),

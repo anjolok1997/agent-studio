@@ -4,11 +4,14 @@ Agent Studio — Launch
 Interactive launcher for Agent Studio. Pick a template, provide materials,
 review the execution plan, and let specialist agents do the work.
 
+Default: CEO mode — agents run autonomously, escalate only for critical actions.
+
 Run:
-    python3 launch.py
-    python3 launch.py --worker-model claude-sonnet-4-6    # Use Sonnet for workers
+    python3 launch.py                                      # CEO mode (default)
+    python3 launch.py --supervised                         # Legacy: checkpoints + per-task approval
+    python3 launch.py --worker-model sonnet                # Use Sonnet for workers
     python3 launch.py --execute --env staging              # Enable real actions
-    python3 launch.py --approve-each                       # Approve every subtask individually
+    python3 launch.py --execute --env prod                 # Production (escalates on all non-SAFE tools)
     python3 launch.py --token-limit 50000                  # Lower spending cap
     python3 launch.py --mcp-config mcp.yaml                # Connect to MCP servers
 """
@@ -22,7 +25,9 @@ import yaml
 from dotenv import load_dotenv
 
 from studio import Engine, list_available_agents, PermissionGuard, ExecutionMode, SpendingGuard, AuditLog
+from studio.permissions import OversightMode
 from studio.planner import Planner
+from studio.agent_loader import AgentLoader
 
 load_dotenv()
 
@@ -176,27 +181,57 @@ def collect_materials(template: dict) -> str:
 
 
 def pick_custom_agents() -> tuple:
-    """Let the user pick agents and write a custom goal."""
-    available = list_available_agents()
-    print(f"\n{BOLD}Available agents:{RESET}\n")
-    for i, agent in enumerate(available, 1):
-        print(f"  {CYAN}{i}.{RESET} {agent}")
+    """Let the user pick agents from the full library + local agents."""
+    loader = AgentLoader()
+    by_category = loader.agents_by_category()
 
-    print(f"\n{DIM}Enter agent numbers separated by commas (e.g. 1,3,5){RESET}")
+    # Build a flat numbered list grouped by category
+    numbered = []  # (index, AgentInfo)
+    idx = 1
+
+    print(f"\n{BOLD}Available agents ({loader.library_count} library + {loader.local_count} custom):{RESET}\n")
+
+    for cat in loader.list_categories():
+        agents_in_cat = by_category.get(cat, [])
+        if not agents_in_cat:
+            continue
+
+        label = "custom (local)" if cat == "custom" else cat
+        print(f"  {MAGENTA}{label} ({len(agents_in_cat)}){RESET}")
+
+        for agent in agents_in_cat:
+            numbered.append(agent)
+            emoji = f"{agent.emoji} " if agent.emoji else ""
+            desc = f" — {agent.description[:60]}" if agent.description else ""
+            source_tag = f" {DIM}(local){RESET}" if agent.source == "local" else ""
+            print(f"    {CYAN}{idx:3}.{RESET} {emoji}{BOLD}{agent.name}{RESET}{source_tag}{desc}")
+            idx += 1
+        print()
+
+    print(f"{DIM}Enter agent numbers separated by commas (e.g. 1,3,27){RESET}")
+    print(f"{DIM}Or type a category name to select all agents in it (e.g. engineering){RESET}")
     choices = input(f"{BOLD}Your team: {RESET}").strip()
 
     selected = []
-    for c in choices.split(","):
+    for part in choices.split(","):
+        part = part.strip()
+        # Check if it's a category name
+        if part in by_category:
+            selected.extend(a.id for a in by_category[part])
+            continue
+        # Otherwise treat as a number
         try:
-            idx = int(c.strip())
-            if 1 <= idx <= len(available):
-                selected.append(available[idx - 1])
+            num = int(part)
+            if 1 <= num <= len(numbered):
+                selected.append(numbered[num - 1].id)
         except ValueError:
             pass
 
     if not selected:
-        print("No valid agents selected. Using all available.")
-        selected = available
+        print("No valid agents selected. Using all local custom agents.")
+        selected = [a.id for a in by_category.get("custom", [])]
+        if not selected:
+            selected = list_available_agents()[:5]
 
     goal = input(f"\n{BOLD}Describe your goal:{RESET}\n> ").strip()
     return goal, selected
@@ -217,16 +252,21 @@ def parse_args():
         help="Enable execute mode (allows real actions with approval)"
     )
     parser.add_argument(
-        "--approve-each", action="store_true",
-        help="Approve each subtask individually instead of the full plan"
+        "--supervised", action="store_true",
+        help="Legacy mode: checkpoints after each subtask + per-delegation approval"
     )
     parser.add_argument(
         "--no-plan", action="store_true",
         help="Skip the planning phase and go straight to execution"
     )
+    # Deprecated flags — map to --supervised with warning
+    parser.add_argument(
+        "--approve-each", action="store_true",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument(
         "--no-checkpoints", action="store_true",
-        help="Skip checkpoints after each subtask (run without pausing)"
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--token-limit", type=int, default=100_000,
@@ -261,12 +301,20 @@ def main():
         print(f"  {DIM}or add it to a .env file in this directory{RESET}\n")
         sys.exit(1)
 
-    # Resolve models
+    # Handle deprecated flags
+    if args.approve_each:
+        print(f"  {YELLOW}--approve-each is deprecated. Use --supervised instead.{RESET}")
+        args.supervised = True
+    if args.no_checkpoints and not args.supervised:
+        print(f"  {YELLOW}--no-checkpoints is deprecated. CEO mode (default) has no checkpoints.{RESET}")
+
+    # Resolve models and oversight mode
     manager_model, worker_model = select_models(args)
+    oversight_mode = OversightMode.SUPERVISED if args.supervised else OversightMode.CEO
 
     # Set up safety layers
     mode = ExecutionMode.EXECUTE if args.execute else ExecutionMode.DRY_RUN
-    permissions = PermissionGuard(mode=mode, environment=args.env)
+    permissions = PermissionGuard(mode=mode, environment=args.env, oversight=oversight_mode)
     spending = SpendingGuard(max_tokens=args.token_limit)
     audit = AuditLog()
 
@@ -284,6 +332,7 @@ def main():
             print(f"  {YELLOW}MCP setup failed: {e}. Running without MCP.{RESET}")
 
     print_banner(permissions.get_mode_label())
+    print(f"  Oversight: {permissions.get_oversight_label()}")
 
     if mcp_bridge and mcp_bridge.connected_servers:
         print(f"  {GREEN}MCP: Connected to {len(mcp_bridge.connected_servers)} server(s): {', '.join(mcp_bridge.connected_servers)}{RESET}\n")
@@ -336,11 +385,10 @@ def main():
 
     # ─── Planning Phase ───────────────────────────────────────────────────────
 
-    use_plan_approval = not args.no_plan and not args.approve_each
+    from anthropic import Anthropic
+    client = Anthropic()
 
-    if use_plan_approval:
-        from anthropic import Anthropic
-        client = Anthropic()
+    if not args.no_plan:
         planner = Planner(client)
 
         print(f"\n{DIM}Planning... (using haiku){RESET}")
@@ -354,35 +402,20 @@ def main():
             print("\nAborted. No tokens spent beyond planning.")
             sys.exit(0)
 
-        # Use the same client for the engine
-        engine = Engine(
-            client=client,
-            manager_model=manager_model,
-            worker_model=worker_model,
-            permissions=permissions,
-            spending_guard=spending,
-            audit=audit,
-            human_approval=False,  # Plan was approved — no per-task approval
-            checkpoints=not args.no_checkpoints,
-            mcp_bridge=mcp_bridge,
-        )
-    else:
-        # --approve-each or --no-plan mode
-        human_approval = args.approve_each
+    if oversight_mode == OversightMode.CEO:
+        print(f"\n  {GREEN}CEO mode — agents will run autonomously.{RESET}")
+        print(f"  {DIM}You'll only be asked to approve dangerous or production-targeting actions.{RESET}\n")
 
-        if args.approve_each and not args.no_plan:
-            print(f"\n  {YELLOW}Per-task approval enabled. You will approve each delegation individually.{RESET}\n")
-
-        engine = Engine(
-            manager_model=manager_model,
-            worker_model=worker_model,
-            permissions=permissions,
-            spending_guard=spending,
-            audit=audit,
-            human_approval=human_approval,
-            checkpoints=not args.no_checkpoints,
-            mcp_bridge=mcp_bridge,
-        )
+    engine = Engine(
+        client=client,
+        manager_model=manager_model,
+        worker_model=worker_model,
+        permissions=permissions,
+        spending_guard=spending,
+        audit=audit,
+        oversight_mode=oversight_mode,
+        mcp_bridge=mcp_bridge,
+    )
 
     print(f"\n{GREEN}Launching Agent Studio...{RESET}")
     print(f"{DIM}Team: {', '.join(agents)}{RESET}\n")

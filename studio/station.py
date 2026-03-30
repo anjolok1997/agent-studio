@@ -10,8 +10,7 @@ from anthropic import Anthropic
 
 from .events import EventEmitter
 from .permissions import PermissionGuard
-
-AGENTS_DIR = Path(__file__).resolve().parent.parent / "agents"
+from .agent_loader import AgentLoader
 
 WORKER_TOOLS = [
     {
@@ -44,18 +43,30 @@ WORKER_TOOLS = [
 ]
 
 
+# Shared loader instance — created on first use
+_default_loader: AgentLoader = None
+
+
+def _get_loader() -> AgentLoader:
+    global _default_loader
+    if _default_loader is None:
+        _default_loader = AgentLoader()
+    return _default_loader
+
+
 def load_agent_prompt(agent_type: str) -> str:
-    """Load a specialist system prompt from agents/<agent_type>.md"""
-    path = AGENTS_DIR / f"{agent_type}.md"
-    if not path.exists():
-        available = list_available_agents()
-        return f"You are a helpful specialist. (Note: agent type '{agent_type}' not found. Available: {available})"
-    return path.read_text()
+    """Load a specialist system prompt by agent ID."""
+    return _get_loader().load_prompt(agent_type)
 
 
 def list_available_agents() -> list[str]:
-    """Return agent types available for assignment."""
-    return sorted(p.stem for p in AGENTS_DIR.glob("*.md") if p.stem != "reality-checker")
+    """Return all available agent IDs (library + local)."""
+    return _get_loader().list_agent_ids()
+
+
+def get_agent_loader() -> AgentLoader:
+    """Get the shared AgentLoader instance."""
+    return _get_loader()
 
 
 class Station:
@@ -93,7 +104,7 @@ class Station:
             return f"[{agent_type}] Draft saved ({len(inputs['content'])} chars)."
         if name == "flag_blocker":
             self.emitter.emit("worker.blocked", {"agent": agent_type, "reason": inputs["reason"]})
-            return f"[{agent_type}] BLOCKED: {inputs['reason']}"
+            return f"[ESCALATION:BLOCKER] {agent_type}: {inputs['reason']}"
         return f"Unknown tool: {name}"
 
     def run(self, subtask: str, agent_type: str, attempt: int = 1, prior_feedback: str = "") -> str:

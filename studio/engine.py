@@ -5,7 +5,11 @@ The Engine is the top-level entry point. It breaks a goal into subtasks,
 delegates to specialist workers, validates via the quality gate,
 and synthesizes the final result.
 
-Includes human approval for subtask delegation and spending controls.
+Oversight modes:
+    CEO        — Agents run autonomously. Human only intervenes for
+                 dangerous tools, production targets, spending thresholds,
+                 or worker-flagged blockers.
+    SUPERVISED — Legacy mode with checkpoints and per-delegation approval.
 """
 
 import os
@@ -15,7 +19,10 @@ from dotenv import load_dotenv
 from .events import EventEmitter
 from .station import Station, list_available_agents
 from .quality_gate import QualityGate
-from .permissions import PermissionGuard, ExecutionMode, SpendingGuard
+from .permissions import (
+    PermissionGuard, ExecutionMode, SpendingGuard,
+    OversightMode, EscalationReason,
+)
 from .audit import AuditLog
 
 try:
@@ -49,8 +56,7 @@ class Engine:
         permissions: PermissionGuard = None,
         spending_guard: SpendingGuard = None,
         audit: AuditLog = None,
-        human_approval: bool = True,
-        checkpoints: bool = True,
+        oversight_mode: OversightMode = OversightMode.CEO,
         mcp_bridge=None,
     ):
         self.client = client or Anthropic()
@@ -59,8 +65,10 @@ class Engine:
         self.permissions = permissions or PermissionGuard()
         self.spending = spending_guard or SpendingGuard()
         self.audit = audit or AuditLog()
-        self.human_approval = human_approval
-        self.checkpoints = checkpoints
+        self.oversight_mode = oversight_mode
+        # Derive legacy flags from oversight mode
+        self.human_approval = (oversight_mode == OversightMode.SUPERVISED)
+        self.checkpoints = (oversight_mode == OversightMode.SUPERVISED)
         self.mcp_bridge = mcp_bridge
         self._subtask_count = 0
         self.station = Station(
@@ -147,6 +155,45 @@ class Engine:
             return redirect if redirect else "continue"
         return "continue"
 
+    def _escalate(self, reason: EscalationReason, context: dict) -> str:
+        """
+        CEO escalation — pause execution and wait for human decision.
+        Returns: "approve", "deny", or a modified instruction string.
+        """
+        self.emitter.emit("engine.escalation", {"reason": reason.value, **context})
+
+        reason_labels = {
+            EscalationReason.DANGEROUS_TOOL: f"{RED}DANGEROUS TOOL{RESET}",
+            EscalationReason.PRODUCTION_TARGET: f"{RED}PRODUCTION TARGET{RESET}",
+            EscalationReason.SPENDING_THRESHOLD: f"{YELLOW}SPENDING THRESHOLD{RESET}",
+            EscalationReason.WORKER_BLOCKER: f"{RED}WORKER BLOCKER{RESET}",
+        }
+        label = reason_labels.get(reason, reason.value)
+
+        print(f"\n  {RED}{'='*56}{RESET}")
+        print(f"  {BOLD}⚠  ESCALATION — CEO APPROVAL REQUIRED{RESET}")
+        print(f"  {BOLD}Reason:{RESET} {label}")
+        print(f"  {RED}{'='*56}{RESET}")
+
+        for key, value in context.items():
+            print(f"  {CYAN}{key}:{RESET}  {str(value)[:200]}")
+
+        print(f"  {RED}{'='*56}{RESET}")
+        print(f"  [{GREEN}Y{RESET}] Approve   [{RED}n{RESET}] Deny   [{YELLOW}m{RESET}] Modify")
+
+        response = input(f"  {BOLD}Decision: {RESET}").strip().lower()
+
+        if response in ("n", "no", "deny"):
+            self.audit.log_escalation(reason.value, context, "denied")
+            return "deny"
+        elif response in ("m", "modify"):
+            modification = input(f"  {BOLD}New instructions: {RESET}").strip()
+            self.audit.log_escalation(reason.value, context, f"modified: {modification}")
+            return modification if modification else "approve"
+
+        self.audit.log_escalation(reason.value, context, "approved")
+        return "approve"
+
     def _check_spending(self, response) -> bool:
         """Track tokens and check spending limit."""
         if hasattr(response, "usage"):
@@ -177,6 +224,7 @@ class Engine:
         print(f"{BOLD}GOAL:{RESET} {goal}")
         print(f"{BOLD}Team:{RESET} {', '.join(agents)}")
         print(f"{BOLD}Mode:{RESET} {self.permissions.get_mode_label()}")
+        print(f"{BOLD}Oversight:{RESET} {self.permissions.get_oversight_label()}")
         print(f"{BOLD}Spending limit:{RESET} {self.spending.max_tokens:,} tokens")
         print(f"{'='*60}\n")
 
@@ -255,21 +303,57 @@ Choosing the right specialist matters. Pick the best fit for each subtask."""
                     station=self.station,
                 )
 
-                # Checkpoint — user reviews result and decides next step
-                decision = self._checkpoint(agent_type, subtask, result)
-                if decision == "stop":
-                    print(f"\n{YELLOW}Stopped by user after subtask {self._subtask_count}.{RESET}")
-                    self.audit.log_run_complete("Stopped by user.", self.spending.tokens_used)
-                    log_file = self.audit.save()
-                    print(f"{DIM}Tokens used: {self.spending.tokens_used:,} | Audit log: {log_file}{RESET}\n")
-                    return {
-                        "summary": f"Stopped by user after {self._subtask_count} subtask(s). Partial results collected.",
-                        "artifacts": self.station.artifacts,
-                        "audit_log": str(log_file),
-                    }
-                if decision != "continue":
-                    # User redirected — append instruction for the manager
-                    result += f"\n\n[USER REDIRECT] The user wants to change direction: {decision}"
+                # CEO mode: check for worker blocker escalation
+                if self.oversight_mode == OversightMode.CEO and "[ESCALATION:BLOCKER]" in result:
+                    decision = self._escalate(EscalationReason.WORKER_BLOCKER, {
+                        "agent": agent_type,
+                        "subtask": subtask[:120],
+                        "blocker": result[:300],
+                    })
+                    if decision == "deny":
+                        print(f"\n{YELLOW}Stopped by CEO after worker blocker.{RESET}")
+                        self.audit.log_run_complete("Stopped by CEO (blocker).", self.spending.tokens_used)
+                        log_file = self.audit.save()
+                        return {
+                            "summary": f"Stopped by CEO after worker blocker in subtask '{subtask[:80]}'.",
+                            "artifacts": self.station.artifacts,
+                            "audit_log": str(log_file),
+                        }
+                    elif decision != "approve":
+                        result += f"\n\n[CEO REDIRECT] {decision}"
+
+                # CEO mode: check spending threshold escalation
+                if self.oversight_mode == OversightMode.CEO and self.spending.should_escalate():
+                    decision = self._escalate(EscalationReason.SPENDING_THRESHOLD, {
+                        "tokens_used": f"{self.spending.tokens_used:,}",
+                        "max_tokens": f"{self.spending.max_tokens:,}",
+                        "percent": f"{self.spending.tokens_used / self.spending.max_tokens:.0%}",
+                    })
+                    if decision == "deny":
+                        print(f"\n{YELLOW}Stopped by CEO at spending threshold.{RESET}")
+                        self.audit.log_run_complete("Stopped by CEO (spending).", self.spending.tokens_used)
+                        log_file = self.audit.save()
+                        return {
+                            "summary": f"Stopped by CEO at spending threshold ({self.spending.tokens_used:,} tokens).",
+                            "artifacts": self.station.artifacts,
+                            "audit_log": str(log_file),
+                        }
+
+                # SUPERVISED mode: checkpoint after every subtask
+                if self.oversight_mode == OversightMode.SUPERVISED:
+                    decision = self._checkpoint(agent_type, subtask, result)
+                    if decision == "stop":
+                        print(f"\n{YELLOW}Stopped by user after subtask {self._subtask_count}.{RESET}")
+                        self.audit.log_run_complete("Stopped by user.", self.spending.tokens_used)
+                        log_file = self.audit.save()
+                        print(f"{DIM}Tokens used: {self.spending.tokens_used:,} | Audit log: {log_file}{RESET}\n")
+                        return {
+                            "summary": f"Stopped by user after {self._subtask_count} subtask(s). Partial results collected.",
+                            "artifacts": self.station.artifacts,
+                            "audit_log": str(log_file),
+                        }
+                    if decision != "continue":
+                        result += f"\n\n[USER REDIRECT] The user wants to change direction: {decision}"
 
                 tool_results.append({
                     "type": "tool_result",
