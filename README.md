@@ -2,7 +2,7 @@
 
 Assemble a team of AI specialists, give them a goal, and let them work. You're the CEO — they handle the details and only come to you when it matters.
 
-Built with the [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python). Agent personas powered by [agency-agents](https://github.com/msitarzewski/agency-agents).
+Works with your Claude subscription — no API key needed. Agent personas powered by [agency-agents](https://github.com/msitarzewski/agency-agents).
 
 ---
 
@@ -12,11 +12,26 @@ Built with the [Anthropic Python SDK](https://github.com/anthropics/anthropic-sd
 git clone --recursive https://github.com/anjolok1997/agent-studio.git
 cd agent-studio
 pip3 install -r requirements.txt
-echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
 python3 launch.py
 ```
 
-Get a key at [console.anthropic.com](https://console.anthropic.com). The `.env` file is gitignored.
+That's it. Agent Studio uses your Claude subscription via the [Claude CLI](https://claude.ai/code). If you haven't already, install and log in:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude login
+```
+
+### API Key Mode (alternative)
+
+If you prefer pay-per-token pricing via the Anthropic API:
+
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
+python3 launch.py --api-key
+```
+
+Get a key at [console.anthropic.com](https://console.anthropic.com).
 
 ---
 
@@ -175,6 +190,7 @@ python3 launch.py --show-models
 
 | Layer | What it does | Default |
 |---|---|---|
+| **Subscription Mode** | Uses Claude CLI — no API key needed | On |
 | **CEO Mode** | Agents run autonomously, escalate only for critical actions | On |
 | **Execution Plan** | Preview subtasks + cost/time estimates before spending tokens | On |
 | **Dry-Run Mode** | Dangerous tools blocked entirely | On |
@@ -218,7 +234,8 @@ python3 launch.py --mcp-config mcp_config.yaml --execute
 ## All Options
 
 ```bash
-python3 launch.py                              # CEO mode (default)
+python3 launch.py                              # Subscription mode + CEO mode (default)
+python3 launch.py --api-key                    # Use Anthropic API key instead
 python3 launch.py --supervised                 # Legacy: checkpoints + approvals
 python3 launch.py --worker-model sonnet        # Sonnet for workers
 python3 launch.py --manager-model opus         # Opus for manager

@@ -219,29 +219,41 @@ class PermissionGuard:
 
 class SpendingGuard:
     """
-    Tracks and limits API token usage per run.
-    Aborts if spending exceeds the cap.
+    Tracks and limits usage per run.
+    In API key mode: tracks tokens.
+    In subscription mode: tracks turns (CLI calls).
     In CEO mode, escalates once when the threshold (80%) is crossed.
     """
 
-    def __init__(self, max_tokens: int = 100_000, threshold: float = 0.8):
-        self.max_tokens = max_tokens
-        self.tokens_used = 0
+    def __init__(self, max_tokens: int = 100_000, threshold: float = 0.8,
+                 subscription_mode: bool = False, max_turns: int = 50):
+        self.subscription_mode = subscription_mode
         self.threshold = threshold
         self._threshold_escalated = False
 
+        if subscription_mode:
+            self.max_tokens = max_turns  # repurpose as max turns
+            self.tokens_used = 0        # repurpose as turns used
+        else:
+            self.max_tokens = max_tokens
+            self.tokens_used = 0
+
     def track(self, input_tokens: int, output_tokens: int):
-        """Record token usage from an API call."""
-        self.tokens_used += input_tokens + output_tokens
+        """Record usage from an API/CLI call."""
+        if self.subscription_mode:
+            self.tokens_used += 1  # count turns, not tokens
+        else:
+            self.tokens_used += input_tokens + output_tokens
 
     def check(self) -> tuple:
         """Check if we're within budget. Returns (ok: bool, message: str)."""
+        unit = "turns" if self.subscription_mode else "tokens"
         if self.tokens_used >= self.max_tokens:
             return False, (
-                f"Spending cap reached: {self.tokens_used:,} / {self.max_tokens:,} tokens. "
-                f"Run aborted to prevent excessive API costs."
+                f"Spending cap reached: {self.tokens_used:,} / {self.max_tokens:,} {unit}. "
+                f"Run aborted to prevent excessive usage."
             )
-        return True, f"{self.tokens_used:,} / {self.max_tokens:,} tokens used"
+        return True, f"{self.tokens_used:,} / {self.max_tokens:,} {unit} used"
 
     def should_escalate(self) -> bool:
         """Returns True once when spending crosses the threshold but hasn't hit the hard cap."""

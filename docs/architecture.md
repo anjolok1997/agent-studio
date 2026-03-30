@@ -138,7 +138,7 @@ See [Agent System](agents.md) for details.
 
 | Component | Technology |
 |---|---|
-| LLM | Claude (Anthropic API) |
+| LLM | Claude (via CLI subscription or Anthropic API) |
 | Planner model | claude-haiku-4-5-20251001 (cheapest) |
 | Manager model | claude-sonnet-4-6 (configurable) |
 | Worker model | claude-haiku-4-5-20251001 (configurable) |
@@ -173,6 +173,7 @@ agent-studio/
     engine.py                  # Manager orchestration
     station.py                 # Worker execution
     agent_loader.py            # Library + local agent discovery
+    cli_client.py              # Claude CLI wrapper for subscription mode
     quality_gate.py            # Output validation
     planner.py                 # Pre-execution planning
     permissions.py             # Risk classification, oversight modes

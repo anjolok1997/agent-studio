@@ -107,7 +107,8 @@ Multiple layers prevent agents from doing anything unintended:
 
 ## Tech Stack
 
-- **LLM**: Claude (Anthropic API) — Sonnet for the manager, Haiku for workers and QA
+- **LLM**: Claude — works with your subscription (default) or Anthropic API key
+- **CLI integration**: Uses the [Claude CLI](https://claude.ai/code) for subscription-based access
 - **Language**: Python 3.9+
 - **Agent library**: [agency-agents](https://github.com/msitarzewski/agency-agents) (MIT License)
 - **Real tool integration**: MCP (Model Context Protocol)

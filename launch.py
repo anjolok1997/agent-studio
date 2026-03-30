@@ -4,10 +4,12 @@ Agent Studio — Launch
 Interactive launcher for Agent Studio. Pick a template, provide materials,
 review the execution plan, and let specialist agents do the work.
 
-Default: CEO mode — agents run autonomously, escalate only for critical actions.
+Default: Uses Claude subscription via CLI (no API key needed).
+Use --api-key to switch to Anthropic SDK mode (pay-per-token).
 
 Run:
-    python3 launch.py                                      # CEO mode (default)
+    python3 launch.py                                      # Subscription mode (default)
+    python3 launch.py --api-key                            # Use Anthropic API key instead
     python3 launch.py --supervised                         # Legacy: checkpoints + per-task approval
     python3 launch.py --worker-model sonnet                # Use Sonnet for workers
     python3 launch.py --execute --env staging              # Enable real actions
@@ -18,6 +20,7 @@ Run:
 
 import argparse
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -248,6 +251,10 @@ def parse_args():
         help="Model for worker agents: haiku, sonnet, opus (default: haiku)"
     )
     parser.add_argument(
+        "--api-key", action="store_true",
+        help="Use Anthropic API key (pay-per-token) instead of Claude subscription"
+    )
+    parser.add_argument(
         "--execute", action="store_true",
         help="Enable execute mode (allows real actions with approval)"
     )
@@ -308,6 +315,30 @@ def main():
     if args.no_checkpoints and not args.supervised:
         print(f"  {YELLOW}--no-checkpoints is deprecated. CEO mode (default) has no checkpoints.{RESET}")
 
+    # Determine client mode: subscription (default) vs API key
+    use_subscription = not args.api_key
+
+    if use_subscription:
+        if not shutil.which("claude"):
+            print(f"\n  {RED}Claude CLI not found.{RESET}")
+            print(f"  Install: npm install -g @anthropic-ai/claude-code")
+            print(f"  Or use API key mode: python3 launch.py --api-key\n")
+            sys.exit(1)
+        from studio.cli_client import CLIClient
+        client = CLIClient()
+        print(f"  {GREEN}Subscription mode{RESET} — using Claude CLI (no API key needed)")
+    else:
+        load_dotenv()
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            print(f"\n  {RED}ANTHROPIC_API_KEY not set.{RESET}")
+            print(f"  Set in .env file or environment variable.")
+            print(f"  Or use subscription mode (default): python3 launch.py\n")
+            sys.exit(1)
+        from anthropic import Anthropic
+        client = Anthropic()
+        print(f"  {CYAN}API key mode{RESET} — using Anthropic SDK (pay-per-token)")
+
     # Resolve models and oversight mode
     manager_model, worker_model = select_models(args)
     oversight_mode = OversightMode.SUPERVISED if args.supervised else OversightMode.CEO
@@ -315,7 +346,10 @@ def main():
     # Set up safety layers
     mode = ExecutionMode.EXECUTE if args.execute else ExecutionMode.DRY_RUN
     permissions = PermissionGuard(mode=mode, environment=args.env, oversight=oversight_mode)
-    spending = SpendingGuard(max_tokens=args.token_limit)
+    spending = SpendingGuard(
+        max_tokens=args.token_limit,
+        subscription_mode=use_subscription,
+    )
     audit = AuditLog()
 
     # Set up MCP bridge (optional)
@@ -384,9 +418,6 @@ def main():
         goal = f"{materials_text}\n\n{goal}"
 
     # ─── Planning Phase ───────────────────────────────────────────────────────
-
-    from anthropic import Anthropic
-    client = Anthropic()
 
     if not args.no_plan:
         planner = Planner(client)
