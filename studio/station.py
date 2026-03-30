@@ -94,10 +94,10 @@ class Station:
         if self.mcp_bridge and self.mcp_bridge.has_tool(name):
             return self.mcp_bridge.call_tool(name, inputs, agent_type)
 
-        # Fall back to simulated tools
+        # Built-in tools — these produce real output without MCP
         if name == "research":
             self.emitter.emit("worker.tool_called", {"agent": agent_type, "tool": name, "topic": inputs["topic"]})
-            return f"[{agent_type}] Research complete on '{inputs['topic']}'."
+            return self._do_research(inputs["topic"], agent_type)
         if name == "draft_output":
             self.artifacts.append({"agent": agent_type, "content": inputs["content"]})
             self.emitter.emit("worker.tool_called", {"agent": agent_type, "tool": name, "chars": len(inputs["content"])})
@@ -106,6 +106,34 @@ class Station:
             self.emitter.emit("worker.blocked", {"agent": agent_type, "reason": inputs["reason"]})
             return f"[ESCALATION:BLOCKER] {agent_type}: {inputs['reason']}"
         return f"Unknown tool: {name}"
+
+    def _do_research(self, topic: str, agent_type: str) -> str:
+        """Actually research a topic using the model's knowledge."""
+        system = load_agent_prompt(agent_type)
+        research_prompt = (
+            f"Research the following topic thoroughly and provide your findings. "
+            f"Be specific, detailed, and practical. Use your expertise.\n\n"
+            f"Topic: {topic}\n\n"
+            f"Provide your research findings as structured, actionable content. "
+            f"Include specifics: tools, patterns, best practices, trade-offs, "
+            f"and concrete recommendations where relevant."
+        )
+
+        try:
+            response = self.client.messages.create(
+                model=self.worker_model,
+                max_tokens=1024,
+                system=system,
+                messages=[{"role": "user", "content": research_prompt}],
+            )
+            result = next(
+                (b.text for b in response.content if hasattr(b, "text")),
+                f"Research on '{topic}' completed but produced no text output."
+            )
+            print(f"      [{agent_type}] research -> {len(result)} chars")
+            return result
+        except Exception as e:
+            return f"Research on '{topic}' failed: {e}"
 
     def run(self, subtask: str, agent_type: str, attempt: int = 1, prior_feedback: str = "") -> str:
         """Run a specialist worker on a subtask. Returns the worker's final text."""
