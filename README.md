@@ -131,13 +131,22 @@ Agent Studio is designed to be safe by default. You don't need to configure anyt
 
 ### Connecting to real systems
 
-By default, tools are simulated — nothing leaves the sandbox. To connect agents to real databases, APIs, or services:
+By default, tools are simulated — nothing leaves the sandbox. Ready-to-use configs are in [`examples/mcp/`](examples/mcp/):
 
 ```bash
-python3 launch.py --execute --env dev          # Enable real actions in dev
-python3 launch.py --execute --env prod         # Production (extra confirmation required)
-python3 launch.py --mcp-config mcp.yaml --execute  # Connect via MCP
+# Read and analyze local files
+cp examples/mcp/filesystem.yaml mcp_config.yaml
+python3 launch.py --execute --env dev
+
+# Review GitHub PRs, issues, and code
+cp examples/mcp/github.yaml mcp_config.yaml
+python3 launch.py --execute --env dev
+
+# Build your own — blank starter with all common servers
+cp examples/mcp/custom.yaml mcp_config.yaml
 ```
+
+Supports: Filesystem, GitHub, PostgreSQL, SQLite, Slack, Puppeteer, Web Fetch, and any [MCP server](https://github.com/modelcontextprotocol/servers).
 
 ---
 

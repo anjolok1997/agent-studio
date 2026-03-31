@@ -1,0 +1,30 @@
+# Filesystem MCP — Read and analyze local files
+#
+# Setup (one command):
+#   cp examples/mcp/filesystem.yaml mcp_config.yaml
+#   # Edit the path below to your directory
+#   python3 launch.py --mcp-config mcp_config.yaml --execute --env dev
+#
+# What agents can do:
+#   - Read files (code, docs, CSVs, configs)
+#   - List directory contents
+#   - Search file contents
+#   - Write output files
+#
+# Try:
+#   "Summarize all the Python files in this directory"
+#   "Read the CSV and find the top 10 customers by revenue"
+#   "Review all config files and flag any security issues"
+
+servers:
+  filesystem:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/directory"]
+    tool_risks:
+      read_file: safe
+      list_directory: safe
+      search_files: safe
+      get_file_info: safe
+      write_file: sensitive
+      create_directory: sensitive

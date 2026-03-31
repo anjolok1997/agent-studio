@@ -1,0 +1,50 @@
+# GitHub MCP — Access repos, PRs, issues, and code
+#
+# Setup:
+#   1. Create a token at https://github.com/settings/tokens
+#      (needs: repo, read:org scopes)
+#   2. Copy this file:
+#      cp examples/mcp/github.yaml mcp_config.yaml
+#   3. Replace GITHUB_TOKEN below with your token
+#   4. Run:
+#      python3 launch.py --mcp-config mcp_config.yaml --execute --env dev
+#
+# Or if you have gh CLI auth already:
+#   export GITHUB_TOKEN=$(gh auth token)
+#   python3 launch.py --mcp-config mcp_config.yaml --execute --env dev
+#
+# What agents can do:
+#   - List and read repos, files, branches
+#   - Review open pull requests
+#   - Search code across repos
+#   - Read and create issues
+#   - View commit history
+#
+# Try:
+#   "Review all open PRs in my repo and summarize each one"
+#   "Find all TODO comments across the codebase"
+#   "List recent issues and suggest which ones to prioritize"
+
+servers:
+  github:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_TOKEN: "ghp_your_token_here"
+    tool_risks:
+      get_file_contents: safe
+      search_repositories: safe
+      search_code: safe
+      list_issues: safe
+      get_issue: safe
+      list_commits: safe
+      get_pull_request: safe
+      list_pull_requests: safe
+      create_issue: sensitive
+      create_pull_request: sensitive
+      update_issue: sensitive
+      add_issue_comment: sensitive
+      create_or_update_file: dangerous
+      push_files: dangerous
+      delete_file: dangerous

@@ -1,0 +1,19 @@
+name: "GitHub Repo Review"
+description: "Review PRs, issues, and code in a GitHub repository"
+agents:
+  - code-reviewer
+  - researcher
+  - project-manager
+goal: >
+  Review the connected GitHub repository. Summarize open pull requests,
+  flag any that are stale or have issues, review recent code changes for
+  quality and security concerns, and compile a status report with
+  recommendations for the team.
+materials:
+  - label: "Repository"
+    type: text
+    hint: "e.g., 'owner/repo-name'"
+    required: true
+  - label: "Focus areas"
+    type: text
+    hint: "e.g., 'Security issues', 'Stale PRs', 'Test coverage gaps'"
