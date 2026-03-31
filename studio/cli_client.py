@@ -1,11 +1,11 @@
 """
-CLI Client — Claude CLI wrapper for subscription-based access.
+CLI Client — Claude CLI wrapper for sign-in-based access.
 
 Wraps the `claude` CLI with `-p` flag to provide an interface compatible
 with the Anthropic Python SDK. Uses subprocess calls with --max-turns 1
 and --resume for session continuity, preserving the existing tool loop.
 
-This allows Agent Studio to run on Claude Pro/Max subscriptions
+This allows Agent Studio to run via Claude CLI login (Pro/Max/Team)
 instead of requiring an API key.
 """
 
@@ -281,7 +281,7 @@ class CLIMessages:
         # encoded in the system prompt. --tools "" removes Read/Edit/Bash/etc.
         cmd.extend(["--tools", ""])
 
-        # Run subprocess — clear API key env vars so CLI uses subscription auth
+        # Run subprocess — clear API key env vars so CLI uses its own auth
         import os
         env = os.environ.copy()
         env.pop("ANTHROPIC_API_KEY", None)
@@ -363,7 +363,7 @@ class CLIClient:
     Drop-in replacement for anthropic.Anthropic() that uses the claude CLI.
 
     Requires the user to be logged in via `claude login`.
-    Works with Claude Pro/Max subscriptions — no API key needed.
+    Works with Claude CLI login — no API key needed.
     """
 
     def __init__(self):

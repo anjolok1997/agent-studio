@@ -220,12 +220,12 @@ class Engine:
         self.audit.log_run_start(goal, agents, self.permissions.mode.value)
         self.emitter.emit("engine.started", {"goal": goal, "agents": agents})
 
+        unit = "turns" if self.spending.subscription_mode else "tokens"
         print(f"\n{'='*60}")
         print(f"{BOLD}GOAL:{RESET} {goal}")
         print(f"{BOLD}Team:{RESET} {', '.join(agents)}")
-        print(f"{BOLD}Mode:{RESET} {self.permissions.get_mode_label()}")
-        print(f"{BOLD}Oversight:{RESET} {self.permissions.get_oversight_label()}")
-        print(f"{BOLD}Spending limit:{RESET} {self.spending.max_tokens:,} tokens")
+        print(f"{BOLD}Mode:{RESET} {self.permissions.get_oversight_label()}")
+        print(f"{BOLD}Limit:{RESET} {self.spending.max_tokens:,} {unit}")
         print(f"{'='*60}\n")
 
         system = f"""You are an orchestrating manager agent. When given a goal:
