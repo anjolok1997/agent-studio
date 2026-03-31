@@ -229,7 +229,7 @@ def cli_list_schedules():
     """List all schedules."""
     schedules = load_schedules()
     if not schedules:
-        print(f"\n  {DIM}No schedules yet. Create one with: python3 launch.py schedule add{RESET}\n")
+        print(f"\n  {DIM}No schedules yet. Create one with: studio schedule add{RESET}\n")
         return
 
     print(f"\n{BOLD}Scheduled tasks:{RESET}\n")

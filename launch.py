@@ -366,7 +366,7 @@ def parse_args():
     )
     parser.add_argument(
         "command", nargs="?", default=None,
-        help="Subcommand: 'schedule' for recurring tasks"
+        help="'schedule' for recurring tasks, or a goal in quotes for one-shot mode"
     )
     parser.add_argument(
         "subcommand", nargs="?", default=None,
@@ -377,6 +377,13 @@ def parse_args():
         help="Schedule name (for remove/run)"
     )
     return parser.parse_args()
+
+
+def _is_one_shot(args) -> bool:
+    """Check if the user passed a goal as a positional argument."""
+    return (args.command is not None
+            and args.command != "schedule"
+            and not args.show_models)
 
 
 def main():
@@ -516,10 +523,13 @@ def main():
     templates = load_templates()
     loader = AgentLoader()
 
-    print(f"{BOLD}What do you want to do?{RESET}")
-    print(f"{DIM}Type 'templates' for pre-built projects, or 'pick' to choose agents manually.{RESET}\n")
-
-    user_input = input(f"{BOLD}> {RESET}").strip()
+    # One-shot mode: studio "do this task"
+    if _is_one_shot(args):
+        user_input = args.command
+    else:
+        print(f"{BOLD}What do you want to do?{RESET}")
+        print(f"{DIM}Type 'templates' for pre-built projects, or 'pick' to choose agents manually.{RESET}\n")
+        user_input = input(f"{BOLD}> {RESET}").strip()
 
     template = None
 
