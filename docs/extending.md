@@ -185,7 +185,7 @@ No visualizer connected? All `emit()` calls are silently ignored — zero overhe
 
 ### Compatible visualizers
 
-- [Agentic Kitchen Visualizer](https://github.com/anjolok1997/agentic-kitchen-pycharm) — PyCharm/IntelliJ plugin
+- [Agentic Kitchen Visualizer](https://github.com/anjolok1997/agent-studio-live) — PyCharm/IntelliJ plugin
 
 ---
 
