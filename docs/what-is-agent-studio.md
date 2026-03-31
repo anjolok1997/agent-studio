@@ -100,6 +100,17 @@ Safety is built in — you don't need to think about it:
 
 Works for quick tasks and deep research alike.
 
+### Recurring Tasks
+
+Set up tasks that run automatically — weekly digests, daily summaries, recurring checks:
+
+```bash
+python3 launch.py schedule add       # Create a recurring task
+python3 launch.py schedule daemon    # Run continuously in background
+```
+
+Schedules are saved as YAML. Run results are saved to `runs/` so you can review what happened.
+
 ---
 
 ## Good to Know
@@ -107,6 +118,7 @@ Works for quick tasks and deep research alike.
 - **Safe by default.** Agents can research, analyze, and draft — but can't touch real systems unless you opt in with `--execute`.
 - **Task-oriented, not a chatbot.** You describe what you need, agents deliver results. No back-and-forth conversation.
 - **Real tool access is opt-in.** Connect to databases, APIs, and services via MCP when you're ready.
+- **Runs on a schedule.** Set up recurring tasks that run automatically.
 
 ---
 

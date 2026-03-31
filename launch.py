@@ -364,6 +364,18 @@ def parse_args():
         "--show-models", action="store_true",
         help="Show available models and exit"
     )
+    parser.add_argument(
+        "command", nargs="?", default=None,
+        help="Subcommand: 'schedule' for recurring tasks"
+    )
+    parser.add_argument(
+        "subcommand", nargs="?", default=None,
+        help="Schedule action: add, list, remove, run, daemon"
+    )
+    parser.add_argument(
+        "schedule_arg", nargs="?", default=None,
+        help="Schedule name (for remove/run)"
+    )
     return parser.parse_args()
 
 
@@ -374,11 +386,59 @@ def main():
         print_model_menu()
         sys.exit(0)
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print(f"\n{YELLOW}Set your API key first:{RESET}")
-        print("  export ANTHROPIC_API_KEY='sk-ant-...'")
-        print(f"  {DIM}or add it to a .env file in this directory{RESET}\n")
-        sys.exit(1)
+    # ─── Schedule subcommand ──────────────────────────────────────────────
+    if args.command == "schedule":
+        from studio.scheduler import (
+            cli_add_schedule, cli_list_schedules,
+            cli_remove_schedule, cli_run_once, cli_daemon,
+        )
+
+        if args.subcommand == "add":
+            cli_add_schedule()
+            sys.exit(0)
+        elif args.subcommand == "list":
+            cli_list_schedules()
+            sys.exit(0)
+        elif args.subcommand == "remove":
+            if not args.schedule_arg:
+                print(f"  {RED}Usage: python3 launch.py schedule remove <name>{RESET}")
+                sys.exit(1)
+            cli_remove_schedule(args.schedule_arg)
+            sys.exit(0)
+        elif args.subcommand in ("run", "daemon"):
+            # Need a client for running tasks
+            use_cli = not args.api_key
+            if use_cli:
+                if not shutil.which("claude"):
+                    print(f"\n  {RED}Claude CLI not found. Install or use --api-key.{RESET}")
+                    sys.exit(1)
+                from studio.cli_client import CLIClient
+                client = CLIClient()
+            else:
+                load_dotenv()
+                if not os.environ.get("ANTHROPIC_API_KEY"):
+                    print(f"\n  {RED}ANTHROPIC_API_KEY not set.{RESET}")
+                    sys.exit(1)
+                from anthropic import Anthropic
+                client = Anthropic()
+
+            if args.subcommand == "run":
+                cli_run_once(client, args.schedule_arg)
+            else:
+                cli_daemon(client)
+            sys.exit(0)
+        else:
+            print(f"\n{BOLD}Schedule commands:{RESET}")
+            print(f"  python3 launch.py schedule add        Create a recurring task")
+            print(f"  python3 launch.py schedule list       Show all scheduled tasks")
+            print(f"  python3 launch.py schedule remove <n> Remove a schedule by name")
+            print(f"  python3 launch.py schedule run        Run all due tasks now")
+            print(f"  python3 launch.py schedule run <name> Run a specific task now")
+            print(f"  python3 launch.py schedule daemon     Run continuously in background")
+            print()
+            sys.exit(0)
+
+    # ─── Normal interactive mode ──────────────────────────────────────────
 
     # Handle deprecated flags
     if args.approve_each:

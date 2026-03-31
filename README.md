@@ -159,10 +159,43 @@ Or just describe what you need — no template required.
 
 ---
 
+## Recurring Tasks
+
+Set up tasks that run on a schedule — weekly digests, daily summaries, recurring checks.
+
+```bash
+python3 launch.py schedule add             # Create a recurring task
+python3 launch.py schedule list            # Show all schedules
+python3 launch.py schedule run             # Run all due tasks now
+python3 launch.py schedule run pr-digest   # Run a specific one
+python3 launch.py schedule daemon          # Run continuously in background
+python3 launch.py schedule remove pr-digest  # Remove a schedule
+```
+
+Example: a weekly PR digest that runs every Monday:
+
+```
+$ python3 launch.py schedule add
+
+Name: pr-digest
+Task: Summarize all GitHub PRs from the last week, flag stale ones, list any security concerns
+How often? weekly
+Agents (Enter to auto-suggest):
+
+Scheduled: pr-digest
+Runs every 168h | Goal: Summarize all GitHub PRs...
+```
+
+Schedules are saved as YAML in `schedules/`. Run results go to `runs/`.
+
+---
+
 ## All Options
 
 ```bash
 python3 launch.py                              # Just describe your task (default)
+python3 launch.py schedule add                 # Create a recurring task
+python3 launch.py schedule daemon              # Run scheduler in background
 python3 launch.py --api-key                    # Use Anthropic API key instead of CLI login
 python3 launch.py --supervised                 # Full control: approve every step
 python3 launch.py --worker-model sonnet        # Upgrade workers to Sonnet
