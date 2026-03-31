@@ -636,7 +636,79 @@ def main():
             print(f"\n{CYAN}--- [{i}] From {a['agent']} ---{RESET}")
             print(a["content"])
 
+    # ─── Follow-up Loop ──────────────────────────────────────────────────
+
+    previous_result = result["summary"]
+    previous_artifacts = result.get("artifacts", [])
+
+    while True:
+        print(f"\n{DIM}Type a follow-up task, or press Enter to exit.{RESET}")
+        followup = input(f"{BOLD}> {RESET}").strip()
+
+        if not followup:
+            break
+
+        # Build follow-up goal with context from previous run
+        artifact_summary = ""
+        if previous_artifacts:
+            artifact_summary = "\n\n".join(
+                f"[Previous artifact from {a['agent']}]:\n{a['content'][:2000]}"
+                for a in previous_artifacts
+            )
+
+        followup_goal = (
+            f"PREVIOUS TASK RESULT:\n{previous_result[:3000]}\n\n"
+            f"{f'PREVIOUS ARTIFACTS:{chr(10)}{artifact_summary}{chr(10)}{chr(10)}' if artifact_summary else ''}"
+            f"NEW TASK: {followup}"
+        )
+
+        # Auto-suggest agents for the follow-up
+        print(f"\n{DIM}Assembling team...{RESET}")
+        followup_agents = suggest_agents(client, followup, loader)
+        agent_names = []
+        for agent_id in followup_agents:
+            info = loader.get_agent(agent_id)
+            agent_names.append(info.name if info else agent_id)
+        print(f"  {GREEN}Team:{RESET} {', '.join(agent_names)}\n")
+
+        # Reset spending for the follow-up
+        spending = SpendingGuard(
+            max_tokens=args.token_limit,
+            subscription_mode=use_cli,
+        )
+        audit = AuditLog()
+
+        engine = Engine(
+            client=client,
+            manager_model=manager_model,
+            worker_model=worker_model,
+            permissions=permissions,
+            spending_guard=spending,
+            audit=audit,
+            oversight_mode=oversight_mode,
+            mcp_bridge=mcp_bridge,
+        )
+
+        result = engine.run(followup_goal, allowed_agents=followup_agents)
+
+        print(f"\n{'='*60}")
+        print(f"{BOLD}{GREEN}RESULT{RESET}")
+        print(f"{'='*60}")
+        print(result["summary"])
+
+        if result["artifacts"]:
+            print(f"\n{'='*60}")
+            print(f"{BOLD}ARTIFACTS ({len(result['artifacts'])} produced){RESET}")
+            print(f"{'='*60}")
+            for i, a in enumerate(result["artifacts"], 1):
+                print(f"\n{CYAN}--- [{i}] From {a['agent']} ---{RESET}")
+                print(a["content"])
+
+        previous_result = result["summary"]
+        previous_artifacts = result.get("artifacts", [])
+
     # Cleanup
+    print(f"\n{DIM}Done. Thanks for using Agent Studio.{RESET}\n")
     if mcp_bridge:
         mcp_bridge.disconnect_all()
 
