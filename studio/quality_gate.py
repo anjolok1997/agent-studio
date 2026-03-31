@@ -36,7 +36,12 @@ class QualityGate:
             }],
         )
         verdict = response.content[0].text.strip()
-        approved = verdict.upper().startswith("APPROVED")
+        # Check for approval anywhere in the verdict — handles various formats:
+        # "APPROVED", "**VERDICT: APPROVED**", "# VERDICT: ✅ APPROVED", etc.
+        verdict_upper = verdict.upper()
+        approved = ("APPROVED" in verdict_upper and "NEEDS WORK" not in verdict_upper
+                    and "NOT APPROVED" not in verdict_upper
+                    and "PARTIAL APPROVAL" not in verdict_upper)
 
         event_type = "qa.approved" if approved else "qa.rejected"
         self.emitter.emit(event_type, {"verdict": verdict[:100]})

@@ -9,20 +9,27 @@ Whether it's a quick task or a deep research project, Agent Studio breaks it dow
 ## Quick Start
 
 ```bash
-git clone --recursive https://github.com/anjolok1997/agent-studio.git
-cd agent-studio
-pip3 install -r requirements.txt
-python3 launch.py
+pip install agent-studio
+studio
 ```
 
-Sign in via the [Claude CLI](https://claude.ai/code). If you haven't already:
+That's it. Works from any folder. Requires the [Claude CLI](https://claude.ai/code) for sign-in:
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-That's it. No API key needed.
+Or install from source:
+
+```bash
+git clone --recursive https://github.com/anjolok1997/agent-studio.git
+cd agent-studio
+pip install -e .
+studio
+```
+
+No API key needed.
 
 ---
 
@@ -134,16 +141,9 @@ Agent Studio is designed to be safe by default. You don't need to configure anyt
 By default, tools are simulated — nothing leaves the sandbox. Ready-to-use configs are in [`examples/mcp/`](examples/mcp/):
 
 ```bash
-# Read and analyze local files
-cp examples/mcp/filesystem.yaml mcp_config.yaml
-python3 launch.py --execute --env dev
-
-# Review GitHub PRs, issues, and code
-cp examples/mcp/github.yaml mcp_config.yaml
-python3 launch.py --execute --env dev
-
-# Build your own — blank starter with all common servers
-cp examples/mcp/custom.yaml mcp_config.yaml
+studio --execute --env dev          # Enable real actions in dev
+studio --execute --env prod         # Production (extra confirmation required)
+studio --mcp-config mcp.yaml --execute  # Connect via MCP
 ```
 
 Supports: Filesystem, GitHub, PostgreSQL, SQLite, Slack, Puppeteer, Web Fetch, and any [MCP server](https://github.com/modelcontextprotocol/servers).
@@ -173,18 +173,18 @@ Or just describe what you need — no template required.
 Set up tasks that run on a schedule — weekly digests, daily summaries, recurring checks.
 
 ```bash
-python3 launch.py schedule add             # Create a recurring task
-python3 launch.py schedule list            # Show all schedules
-python3 launch.py schedule run             # Run all due tasks now
-python3 launch.py schedule run pr-digest   # Run a specific one
-python3 launch.py schedule daemon          # Run continuously in background
-python3 launch.py schedule remove pr-digest  # Remove a schedule
+studio schedule add             # Create a recurring task
+studio schedule list            # Show all schedules
+studio schedule run             # Run all due tasks now
+studio schedule run pr-digest   # Run a specific one
+studio schedule daemon          # Run continuously in background
+studio schedule remove pr-digest  # Remove a schedule
 ```
 
 Example: a weekly PR digest that runs every Monday:
 
 ```
-$ python3 launch.py schedule add
+$ studio schedule add
 
 Name: pr-digest
 Task: Summarize all GitHub PRs from the last week, flag stale ones, list any security concerns
@@ -202,19 +202,19 @@ Schedules are saved as YAML in `schedules/`. Run results go to `runs/`.
 ## All Options
 
 ```bash
-python3 launch.py                              # Just describe your task (default)
-python3 launch.py schedule add                 # Create a recurring task
-python3 launch.py schedule daemon              # Run scheduler in background
-python3 launch.py --api-key                    # Use Anthropic API key instead of CLI login
-python3 launch.py --supervised                 # Full control: approve every step
-python3 launch.py --worker-model sonnet        # Upgrade workers to Sonnet
-python3 launch.py --manager-model opus         # Upgrade manager to Opus
-python3 launch.py --no-plan                    # Skip the planning preview
-python3 launch.py --execute --env dev          # Enable real tool actions
-python3 launch.py --execute --env prod         # Production (requires confirmation)
-python3 launch.py --token-limit 50000          # Lower spending cap
-python3 launch.py --mcp-config mcp.yaml        # Connect real tools via MCP
-python3 launch.py --show-models                # Show available models
+studio                              # Just describe your task (default)
+studio schedule add                 # Create a recurring task
+studio schedule daemon              # Run scheduler in background
+studio --api-key                    # Use Anthropic API key instead of CLI login
+studio --supervised                 # Full control: approve every step
+studio --worker-model sonnet        # Upgrade workers to Sonnet
+studio --manager-model opus         # Upgrade manager to Opus
+studio --no-plan                    # Skip the planning preview
+studio --execute --env dev          # Enable real tool actions
+studio --execute --env prod         # Production (requires confirmation)
+studio --token-limit 50000          # Lower spending cap
+studio --mcp-config mcp.yaml        # Connect real tools via MCP
+studio --show-models                # Show available models
 ```
 
 ---
