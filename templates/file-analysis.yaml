@@ -1,0 +1,18 @@
+name: "File Analysis"
+description: "Analyze local files — code, docs, CSVs, configs"
+agents:
+  - analyst
+  - researcher
+  - summarizer
+goal: >
+  Read and analyze the files in the connected directory. Summarize key findings,
+  identify patterns, and produce actionable insights. Adapt your analysis based
+  on the file types found (code, data, documentation, configuration).
+materials:
+  - label: "What to look for"
+    type: text
+    hint: "e.g., 'Find security issues in config files', 'Summarize all markdown docs', 'Analyze the CSV data'"
+    required: true
+  - label: "Directory or file focus"
+    type: text
+    hint: "e.g., 'Focus on the src/ folder', 'Only look at .py files'"

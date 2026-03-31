@@ -138,13 +138,15 @@ Agent Studio is designed to be safe by default. You don't need to configure anyt
 
 ### Connecting to real systems
 
-By default, tools are simulated — nothing leaves the sandbox. To connect agents to real databases, APIs, or services:
+By default, tools are simulated — nothing leaves the sandbox. Ready-to-use configs are in [`examples/mcp/`](examples/mcp/):
 
 ```bash
 studio --execute --env dev          # Enable real actions in dev
 studio --execute --env prod         # Production (extra confirmation required)
 studio --mcp-config mcp.yaml --execute  # Connect via MCP
 ```
+
+Supports: Filesystem, GitHub, PostgreSQL, SQLite, Slack, Puppeteer, Web Fetch, and any [MCP server](https://github.com/modelcontextprotocol/servers).
 
 ---
 

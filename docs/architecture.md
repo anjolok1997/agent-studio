@@ -182,6 +182,11 @@ agent-studio/
     events.py                  # WebSocket event emitter
     mcp_bridge.py              # MCP tool integration
   templates/                   # Project templates (YAML)
+  examples/
+    mcp/                       # Ready-to-use MCP configs
+      filesystem.yaml          # Local file access
+      github.yaml              # GitHub repos, PRs, issues
+      custom.yaml              # Blank starter with all servers
   schedules/                   # Recurring task configs (YAML, auto-created)
   runs/                        # Scheduled run outputs (JSON, auto-created)
   docs/                        # Technical documentation

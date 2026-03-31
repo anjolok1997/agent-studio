@@ -1,0 +1,96 @@
+# Custom MCP Config — Add your own tools
+#
+# Use this as a starting point to connect Agent Studio to your own systems.
+# Combine multiple servers in one config file.
+#
+# Setup:
+#   cp examples/mcp/custom.yaml mcp_config.yaml
+#   # Edit the servers below
+#   python3 launch.py --mcp-config mcp_config.yaml --execute --env dev
+#
+# Find MCP servers:
+#   https://github.com/modelcontextprotocol/servers
+#   https://mcp.so
+
+servers:
+  # ── Filesystem — read/write local files ──
+  # filesystem:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+
+  # ── GitHub — repos, PRs, issues, code ──
+  # github:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_TOKEN: "ghp_your_token"
+
+  # ── PostgreSQL — query your database ──
+  # postgres:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-postgres"]
+  #   env:
+  #     DATABASE_URL: "postgresql://user:pass@localhost:5432/mydb"
+  #   tool_risks:
+  #     query: safe
+  #     execute: dangerous
+
+  # ── SQLite — local database file ──
+  # sqlite:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-sqlite", "/path/to/database.db"]
+
+  # ── Slack — read channels, post messages ──
+  # slack:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-slack"]
+  #   env:
+  #     SLACK_BOT_TOKEN: "xoxb-your-token"
+  #   tool_risks:
+  #     list_channels: safe
+  #     read_channel: safe
+  #     search_messages: safe
+  #     post_message: sensitive
+
+  # ── Web Fetch — pull content from URLs ──
+  # fetch:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-fetch"]
+  #   tool_risks:
+  #     fetch: safe
+
+  # ── Puppeteer — browser automation ──
+  # browser:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-puppeteer"]
+  #   tool_risks:
+  #     navigate: sensitive
+  #     screenshot: safe
+  #     click: sensitive
+  #     fill: sensitive
+  #     evaluate: dangerous
+
+  # ── Custom HTTP server ──
+  # my_server:
+  #   transport: sse
+  #   url: "http://localhost:8080/mcp"
+
+# ── Tool Risk Levels ──
+#
+# Each tool is classified by risk. You can override with tool_risks:
+#
+#   safe       — Read-only (auto-approved)
+#   sensitive  — Creates/modifies things (auto-approved in CEO mode, except prod)
+#   dangerous  — Destructive or irreversible (always requires approval)
+#
+# If not specified, risk is inferred from the tool name:
+#   read/list/search/get → safe
+#   write/create/update  → sensitive
+#   delete/drop/execute  → dangerous
