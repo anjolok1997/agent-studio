@@ -205,23 +205,30 @@ class PermissionGuard:
         return False, "denied by user"
 
     def get_mode_label(self) -> str:
-        """Human-readable label for the current mode."""
+        """Human-readable label for dry-run vs execute (used internally)."""
         if self.mode == ExecutionMode.DRY_RUN:
             return "\033[36mDRY-RUN\033[0m (planning only, no real actions)"
         return f"\033[33mEXECUTE\033[0m (environment: {self.environment})"
 
     def get_oversight_label(self) -> str:
-        """Human-readable label for the oversight mode."""
+        """Single human-readable label combining oversight + execution mode."""
         if self.oversight == OversightMode.CEO:
-            return "\033[32mCEO MODE\033[0m (autonomous — escalates only for critical actions)"
-        return "\033[33mSUPERVISED MODE\033[0m (checkpoints + per-task approval)"
+            if self.mode == ExecutionMode.DRY_RUN:
+                return "\033[32mCEO MODE\033[0m — agents run autonomously, dangerous tools blocked (use --execute to enable)"
+            else:
+                return f"\033[32mCEO MODE\033[0m — agents run autonomously, escalates for critical actions (env: {self.environment})"
+        else:
+            if self.mode == ExecutionMode.DRY_RUN:
+                return "\033[33mSUPERVISED MODE\033[0m — checkpoints + approvals, dangerous tools blocked"
+            else:
+                return f"\033[33mSUPERVISED MODE\033[0m — checkpoints + approvals (env: {self.environment})"
 
 
 class SpendingGuard:
     """
     Tracks and limits usage per run.
     In API key mode: tracks tokens.
-    In subscription mode: tracks turns (CLI calls).
+    In CLI login mode: tracks turns (CLI calls) instead of tokens.
     In CEO mode, escalates once when the threshold (80%) is crossed.
     """
 
