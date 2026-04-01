@@ -402,7 +402,8 @@ def main():
         mcp_config_path = Path(args.mcp_config)
 
         if args.subcommand == "add":
-            cli_mcp_add(mcp_config_path)
+            allow_custom = args.schedule_arg == "--allow-custom"
+            cli_mcp_add(mcp_config_path, allow_custom=allow_custom)
             sys.exit(0)
         elif args.subcommand in ("list", "ls"):
             cli_mcp_list(mcp_config_path)

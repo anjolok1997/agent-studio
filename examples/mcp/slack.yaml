@@ -1,0 +1,38 @@
+# Slack MCP — Read channels, send messages, search conversations
+#
+# Setup:
+#   1. Create a Slack app at https://api.slack.com/apps
+#      Add scopes: channels:read, channels:history, chat:write, search:read, users:read
+#   2. Install the app to your workspace and copy the Bot User OAuth Token
+#   3. Copy this file:
+#      cp examples/mcp/slack.yaml mcp_config.yaml
+#   4. Replace the token below
+#   5. Run:
+#      studio --execute --env dev
+#
+# What agents can do:
+#   - Search messages across channels
+#   - Read channel history
+#   - Send messages to channels
+#   - Look up user profiles
+#
+# Try:
+#   "Summarize what happened in #engineering this week"
+#   "Find all messages mentioning the deployment issue"
+#   "Draft a status update for #team-updates based on recent activity"
+
+servers:
+  slack:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-slack@2025.4.25"]
+    env:
+      SLACK_BOT_TOKEN: "xoxb-your-token-here"
+    tool_risks:
+      search_messages: safe
+      list_channels: safe
+      get_channel_history: safe
+      get_user_profile: safe
+      post_message: sensitive
+      update_message: sensitive
+      add_reaction: sensitive

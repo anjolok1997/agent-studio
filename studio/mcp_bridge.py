@@ -64,6 +64,7 @@ class MCPServer:
         self.env = config.get("env", {})
         self.url = config.get("url")
         self.tool_risks = config.get("tool_risks", {})
+        self.sandbox = config.get("sandbox")  # "docker" or None
         self.tools: list[dict] = []
         self._session = None
         self._connected = False
@@ -109,20 +110,31 @@ class MCPBridge:
         """Connect to all configured MCP servers and discover tools."""
         for name, server in self.servers.items():
             try:
+                sandbox_label = " [Docker]" if server.sandbox == "docker" else ""
                 self._connect_server(server)
                 self.connected_servers.append(name)
                 self.emitter.emit("mcp.connected", {
                     "server": name,
                     "tools": len(server.tools),
+                    "sandboxed": server.sandbox == "docker",
                 })
-                print(f"  MCP: Connected to '{name}' ({len(server.tools)} tools)")
+                print(f"  MCP: Connected to '{name}'{sandbox_label} ({len(server.tools)} tools)")
             except Exception as e:
                 print(f"  MCP: Failed to connect to '{name}': {e}")
 
     def _connect_server(self, server: MCPServer):
         """Connect to a single MCP server and discover its tools."""
         if server.transport == "stdio":
-            tools = asyncio.run(self._connect_stdio(server))
+            # Use Docker sandbox if configured
+            if server.sandbox == "docker":
+                command, args = self._get_docker_command(server)
+            else:
+                command = server.command
+                args = server.args
+
+            tools = asyncio.run(self._connect_stdio_with(
+                command, args, server.env if server.sandbox != "docker" else None,
+            ))
             server.tools = tools
             server._connected = True
 
@@ -138,12 +150,27 @@ class MCPBridge:
                     risk = _infer_risk(tool_name)
                 TOOL_RISK_MAP[tool_name] = risk
 
-    async def _connect_stdio(self, server: MCPServer) -> list[dict]:
+    def _get_docker_command(self, server: MCPServer) -> tuple[str, list[str]]:
+        """Build Docker command for sandboxed MCP server execution."""
+        from .mcp_sandbox import get_docker_command
+        raw_config = {
+            "args": server.args,
+            "env": server.env,
+        }
+        docker_cmd = get_docker_command(server.name, raw_config)
+        if not docker_cmd:
+            # Fallback to direct execution
+            return server.command, server.args
+        # docker_cmd is a full command list, split into command + args
+        return docker_cmd[0], docker_cmd[1:]
+
+    async def _connect_stdio_with(self, command: str, args: list,
+                                   env: dict = None) -> list[dict]:
         """Connect to a stdio MCP server and list its tools."""
         params = StdioServerParameters(
-            command=server.command,
-            args=server.args,
-            env=server.env if server.env else None,
+            command=command,
+            args=args,
+            env=env if env else None,
         )
 
         async with stdio_client(params) as (read, write):
@@ -213,10 +240,14 @@ class MCPBridge:
     async def _call_tool_async(self, server: MCPServer, name: str, inputs: dict) -> str:
         """Execute a tool call against an MCP server."""
         if server.transport == "stdio":
+            if server.sandbox == "docker":
+                command, args = self._get_docker_command(server)
+            else:
+                command, args = server.command, server.args
             params = StdioServerParameters(
-                command=server.command,
-                args=server.args,
-                env=server.env if server.env else None,
+                command=command,
+                args=args,
+                env=server.env if server.sandbox != "docker" else None,
             )
 
             async with stdio_client(params) as (read, write):
