@@ -411,35 +411,75 @@ class Planner:
 
         # Parse subtasks — supports multiple formats:
         #   SUBTASK: [agent-type] Description
+        #   SUBTASK: agent-type Description  (no brackets)
         #   1. [agent-type] Description
         #   - [agent-type] Description
         subtasks = []
         for line in plan_text.split("\n"):
             line = line.strip()
+            if not line:
+                continue
 
-            # Standard format
+            rest = None
+
+            # Standard format: SUBTASK: ...
             if line.upper().startswith("SUBTASK:"):
                 rest = line[len("SUBTASK:"):].strip()
             # Numbered format: "1. [agent] ..." or "1) [agent] ..."
             elif re.match(r"^\d+[.)]\s*\[", line):
                 rest = re.sub(r"^\d+[.)]\s*", "", line)
-            # Dash format: "- [agent] ..."
-            elif line.startswith("- [") or line.startswith("* ["):
+            # Numbered without brackets: "1. agent-type Description"
+            elif re.match(r"^\d+[.)]\s+\S", line):
+                rest = re.sub(r"^\d+[.)]\s*", "", line)
+            # Dash format: "- [agent] ..." or "- agent ..."
+            elif line.startswith("- ") or line.startswith("* "):
                 rest = line[2:].strip()
-            else:
+
+            if rest is None:
                 continue
 
+            agent_type = None
+            description = ""
+
+            # Try bracketed format first: [agent-type] description
             match = re.match(r"\[([^\]]+)\]\s*(.*)", rest)
             if match:
                 agent_type = match.group(1).strip()
                 description = match.group(2).strip()
-                # Strip leading dash/colon from description
-                description = re.sub(r"^[-:]\s*", "", description)
-                if agent_type in allowed_agents:
-                    subtasks.append({"agent_type": agent_type, "description": description})
+            else:
+                # Try unbracketed: agent-type description
+                # Match known agent IDs at the start
+                agent_type = None
+                for aid in allowed_agents:
+                    if rest.lower().startswith(aid):
+                        agent_type = aid
+                        description = rest[len(aid):].strip()
+                        break
+                if not agent_type:
+                    # Try first word as agent type
+                    parts = rest.split(None, 1)
+                    if len(parts) == 2:
+                        agent_type = parts[0].strip()
+                        description = parts[1].strip()
+                    else:
+                        continue
+
+            # Strip leading punctuation from description
+            description = re.sub(r"^[-:—]\s*", "", description)
+
+            # Match agent to allowed list (exact or partial)
+            if agent_type in allowed_agents:
+                subtasks.append({"agent_type": agent_type, "description": description})
+            else:
+                # Try partial match (e.g. "frontend-developer" matches "engineering-frontend-developer")
+                matched = [a for a in allowed_agents if agent_type in a or a in agent_type]
+                if matched:
+                    subtasks.append({"agent_type": matched[0], "description": description})
 
         if not subtasks:
-            subtasks = [{"agent_type": allowed_agents[0], "description": "(plan could not be parsed — will use default planning)"}]
+            # Last resort: distribute goal across all agents evenly
+            for i, agent in enumerate(allowed_agents[:4]):
+                subtasks.append({"agent_type": agent, "description": f"Handle part {i+1} of: {goal[:100]}"})
 
         num_subtasks = len(subtasks)
         token_est = _estimate_tokens(num_subtasks, worker_model, manager_model, material_tokens)
