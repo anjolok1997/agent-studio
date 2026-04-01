@@ -291,13 +291,13 @@ class CLIMessages:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
                 env=env,
             )
         except subprocess.TimeoutExpired:
             return CLIResponse(
                 stop_reason="end_turn",
-                content=[TextBlock(text="[ERROR] CLI call timed out after 120 seconds.")],
+                content=[TextBlock(text="[ERROR] CLI call timed out after 5 minutes.")],
             )
         except FileNotFoundError:
             raise RuntimeError(

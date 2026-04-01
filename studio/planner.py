@@ -385,6 +385,15 @@ class Planner:
         if hasattr(response, "usage"):
             planning_tokens = response.usage.input_tokens + response.usage.output_tokens
 
+        # Debug: dump raw plan text to file for diagnosis
+        try:
+            Path("/tmp/studio_planner_debug.txt").write_text(
+                f"allowed_agents: {allowed_agents}\n\n"
+                f"plan_text:\n{plan_text}\n"
+            )
+        except Exception:
+            pass
+
         # Handle CLI client JSON-wrapped responses
         if plan_text.startswith("{"):
             try:
