@@ -8,7 +8,10 @@ material size impact on token usage.
 The user reviews the full plan before any expensive execution begins.
 """
 
+import json
 import re
+from datetime import datetime
+from pathlib import Path
 from anthropic import Anthropic
 
 from .events import EventEmitter
@@ -32,13 +35,12 @@ TOKENS_PER_SUBTASK = {
     "claude-opus-4-6": 30_000,
 }
 
-# Approximate seconds per subtask
-# Includes: worker calls, research tool LLM call, QA check, possible retry,
-# manager overhead, and CLI subprocess latency (~2s per call)
-SECONDS_PER_SUBTASK = {
-    "claude-haiku-4-5-20251001": 90,
-    "claude-sonnet-4-6": 150,
-    "claude-opus-4-6": 240,
+# Default seconds per subtask (used when no historical data exists)
+# Based on measured runs: ~200s for haiku, higher for smarter models
+DEFAULT_SECONDS_PER_SUBTASK = {
+    "claude-haiku-4-5-20251001": 200,
+    "claude-sonnet-4-6": 300,
+    "claude-opus-4-6": 450,
 }
 
 # Cost per 1M tokens (input + output blended estimate)
@@ -254,31 +256,61 @@ def _estimate_tokens(num_subtasks: int, worker_model: str, manager_model: str,
     return manager_tokens + (num_subtasks * worker_tokens) + material_overhead
 
 
+def _get_historical_avg():
+    """Read past audit logs and calculate average seconds per subtask."""
+    logs_dir = Path(__file__).resolve().parent.parent / "logs"
+    if not logs_dir.exists():
+        return None
+
+    measurements = []
+    for log_file in logs_dir.glob("run_*.json"):
+        try:
+            data = json.loads(log_file.read_text())
+            start = datetime.fromisoformat(data["started"])
+            end = datetime.fromisoformat(data["completed"])
+            total_secs = (end - start).total_seconds()
+
+            num_subtasks = sum(1 for e in data["entries"] if e["event"] == "task.delegated")
+            if num_subtasks > 0 and total_secs > 10:
+                measurements.append(total_secs / num_subtasks)
+        except Exception:
+            continue
+
+    if not measurements:
+        return None
+
+    return sum(measurements) / len(measurements)
+
+
 def _estimate_time(num_subtasks: int, worker_model: str, material_tokens: int = 0) -> str:
-    """Estimate total run time as a human-readable range."""
-    secs_per_subtask = SECONDS_PER_SUBTASK.get(worker_model, 90)
+    """Estimate total run time based on historical data or defaults."""
+    # Try to use real data from past runs
+    historical_avg = _get_historical_avg()
+    if historical_avg:
+        secs_per_subtask = historical_avg
+    else:
+        secs_per_subtask = DEFAULT_SECONDS_PER_SUBTASK.get(worker_model, 200)
 
     # Large materials add processing time
     if material_tokens > 50_000:
-        secs_per_subtask = int(secs_per_subtask * 1.5)
+        secs_per_subtask = int(secs_per_subtask * 1.3)
     elif material_tokens > 150_000:
-        secs_per_subtask = int(secs_per_subtask * 2.5)
+        secs_per_subtask = int(secs_per_subtask * 1.8)
 
-    # Manager overhead: planning calls + synthesis between subtasks
-    manager_overhead = 30 + (num_subtasks * 15)
-
-    low = (num_subtasks * secs_per_subtask) + manager_overhead
-    high = int(low * 1.5)  # Account for QA retries
+    low = int(num_subtasks * secs_per_subtask)
+    high = int(low * 1.3)  # Small buffer for variability
 
     low_min = low // 60
     high_min = high // 60
 
+    source = "based on your past runs" if historical_avg else "estimated"
+
     if high_min < 1:
-        return f"~{low}-{high} seconds"
+        return f"~{low}-{high} seconds ({source})"
     elif low_min == high_min:
-        return f"~{low_min} minutes"
+        return f"~{low_min} minutes ({source})"
     else:
-        return f"~{low_min}-{high_min} minutes"
+        return f"~{low_min}-{high_min} minutes ({source})"
 
 
 def _estimate_cost(tokens: int, worker_model: str) -> str:
