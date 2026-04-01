@@ -33,10 +33,12 @@ TOKENS_PER_SUBTASK = {
 }
 
 # Approximate seconds per subtask
+# Includes: worker calls, research tool LLM call, QA check, possible retry,
+# manager overhead, and CLI subprocess latency (~2s per call)
 SECONDS_PER_SUBTASK = {
-    "claude-haiku-4-5-20251001": 40,
-    "claude-sonnet-4-6": 70,
-    "claude-opus-4-6": 120,
+    "claude-haiku-4-5-20251001": 90,
+    "claude-sonnet-4-6": 150,
+    "claude-opus-4-6": 240,
 }
 
 # Cost per 1M tokens (input + output blended estimate)
@@ -253,20 +255,30 @@ def _estimate_tokens(num_subtasks: int, worker_model: str, manager_model: str,
 
 
 def _estimate_time(num_subtasks: int, worker_model: str, material_tokens: int = 0) -> str:
-    """Estimate run time as a human-readable range."""
-    secs = SECONDS_PER_SUBTASK.get(worker_model, 60)
+    """Estimate total run time as a human-readable range."""
+    secs_per_subtask = SECONDS_PER_SUBTASK.get(worker_model, 90)
 
     # Large materials add processing time
     if material_tokens > 50_000:
-        secs = int(secs * 1.5)
+        secs_per_subtask = int(secs_per_subtask * 1.5)
     elif material_tokens > 150_000:
-        secs = int(secs * 2.5)
+        secs_per_subtask = int(secs_per_subtask * 2.5)
 
-    low = num_subtasks * secs
+    # Manager overhead: planning calls + synthesis between subtasks
+    manager_overhead = 30 + (num_subtasks * 15)
+
+    low = (num_subtasks * secs_per_subtask) + manager_overhead
     high = int(low * 1.5)  # Account for QA retries
-    if low < 60:
+
+    low_min = low // 60
+    high_min = high // 60
+
+    if high_min < 1:
         return f"~{low}-{high} seconds"
-    return f"~{low // 60}-{high // 60} minutes"
+    elif low_min == high_min:
+        return f"~{low_min} minutes"
+    else:
+        return f"~{low_min}-{high_min} minutes"
 
 
 def _estimate_cost(tokens: int, worker_model: str) -> str:
