@@ -457,9 +457,7 @@ class Planner:
             for rec in mat.get("recommendations", []):
                 print(f"    {CYAN}Tip:{RESET} {rec}")
 
-        print(f"\n{BOLD}  Estimates:{RESET}")
-        print(f"    AI cost:       {GREEN}{plan['cost_estimate']}{RESET}")
-        print(f"    Tokens:        ~{plan['token_estimate']:,} / {token_limit:,} limit")
+        print(f"\n{BOLD}  Estimates {DIM}(rough, depends on task complexity){RESET}:")
         print(f"    Time:          {plan['time_estimate']}")
         print(f"    Models:        Manager={manager_model}, Workers={worker_model}")
 
