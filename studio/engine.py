@@ -136,7 +136,7 @@ class Engine:
             llm=checker_llm, emitter=self.emitter,
         )
 
-    def _request_delegation_approval(self, subtask: str, agent_type: str) -> bool:
+    def _request_delegation_approval(self, subtask: str, agent_type: str) -> tuple[bool, str]:
         """Ask the human to approve a subtask delegation."""
         print(f"\n  {YELLOW}{'─'*56}{RESET}")
         print(f"  {BOLD}Delegation Request{RESET}")
@@ -400,7 +400,7 @@ RULES:
             self.spending.track(synthesis.input_tokens, synthesis.output_tokens)
             print(f"\r{' '*50}\r", end="")
             summary = synthesis.text
-        self.emitter.emit("engine.completed", {"subtasks": len(delegations)})
+        self.emitter.emit("engine.completed", {"subtasks": len(completed)})
         self.audit.log_run_complete(summary, self.spending.tokens_used)
         log_file = self.audit.save()
 
