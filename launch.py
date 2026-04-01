@@ -629,12 +629,33 @@ def main():
     print(result["summary"])
 
     if result["artifacts"]:
+        # Save artifacts to disk
+        output_dir = Path("output")
+        output_dir.mkdir(exist_ok=True)
+
         print(f"\n{'='*60}")
         print(f"{BOLD}ARTIFACTS ({len(result['artifacts'])} produced){RESET}")
         print(f"{'='*60}")
         for i, a in enumerate(result["artifacts"], 1):
-            print(f"\n{CYAN}--- [{i}] From {a['agent']} ---{RESET}")
-            print(a["content"])
+            # Detect file extension from content
+            content = a["content"]
+            if content.strip().startswith("<!DOCTYPE") or content.strip().startswith("<html"):
+                ext = "html"
+            elif content.strip().startswith("{") or content.strip().startswith("["):
+                ext = "json"
+            elif "```python" in content or "def " in content[:200]:
+                ext = "py"
+            elif "```javascript" in content or "```typescript" in content:
+                ext = "js"
+            else:
+                ext = "md"
+
+            filename = f"artifact_{i}_{a['agent']}.{ext}"
+            filepath = output_dir / filename
+            filepath.write_text(content)
+            print(f"\n  {GREEN}[{i}]{RESET} {BOLD}{filepath}{RESET} ({len(content):,} chars from {a['agent']})")
+
+        print(f"\n  {DIM}All artifacts saved to {output_dir}/{RESET}")
 
     # ─── Follow-up Loop ──────────────────────────────────────────────────
 
@@ -648,17 +669,15 @@ def main():
         if not followup:
             break
 
-        # Build follow-up goal with context from previous run
-        artifact_summary = ""
+        # Build follow-up goal with context — summary only, not full artifacts
+        artifact_refs = ""
         if previous_artifacts:
-            artifact_summary = "\n\n".join(
-                f"[Previous artifact from {a['agent']}]:\n{a['content'][:2000]}"
-                for a in previous_artifacts
-            )
+            refs = [f"- {a['agent']}: {len(a['content']):,} chars" for a in previous_artifacts]
+            artifact_refs = f"\n\nPrevious artifacts produced:\n" + "\n".join(refs)
 
         followup_goal = (
-            f"PREVIOUS TASK RESULT:\n{previous_result[:3000]}\n\n"
-            f"{f'PREVIOUS ARTIFACTS:{chr(10)}{artifact_summary}{chr(10)}{chr(10)}' if artifact_summary else ''}"
+            f"CONTEXT FROM PREVIOUS TASK:\n{previous_result[:2000]}"
+            f"{artifact_refs}\n\n"
             f"NEW TASK: {followup}"
         )
 
@@ -697,12 +716,26 @@ def main():
         print(result["summary"])
 
         if result["artifacts"]:
+            output_dir = Path("output")
+            output_dir.mkdir(exist_ok=True)
+
             print(f"\n{'='*60}")
             print(f"{BOLD}ARTIFACTS ({len(result['artifacts'])} produced){RESET}")
             print(f"{'='*60}")
             for i, a in enumerate(result["artifacts"], 1):
-                print(f"\n{CYAN}--- [{i}] From {a['agent']} ---{RESET}")
-                print(a["content"])
+                content = a["content"]
+                if content.strip().startswith("<!DOCTYPE") or content.strip().startswith("<html"):
+                    ext = "html"
+                elif content.strip().startswith("{") or content.strip().startswith("["):
+                    ext = "json"
+                else:
+                    ext = "md"
+                filename = f"artifact_{i}_{a['agent']}.{ext}"
+                filepath = output_dir / filename
+                filepath.write_text(content)
+                print(f"\n  {GREEN}[{i}]{RESET} {BOLD}{filepath}{RESET} ({len(content):,} chars from {a['agent']})")
+
+            print(f"\n  {DIM}All artifacts saved to {output_dir}/{RESET}")
 
         previous_result = result["summary"]
         previous_artifacts = result.get("artifacts", [])
