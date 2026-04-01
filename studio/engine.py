@@ -228,45 +228,87 @@ class Engine:
         print(f"{BOLD}Limit:{RESET} {self.spending.max_tokens:,} {unit}")
         print(f"{'='*60}\n")
 
-        # Step 1: Manager breaks goal into subtasks
-        print(f"{DIM}Manager is breaking down your task...{RESET}", end="", flush=True)
+        # ─── Iterative Manager Loop ─────────────────────────────────────
+        # Manager delegates one subtask at a time. After each worker finishes,
+        # the manager sees the result and decides what's next. This produces
+        # better results than planning all subtasks upfront.
 
-        manager_system = f"""You are an orchestrating manager. Break the goal into 2-4 focused subtasks.
-For each subtask, assign the best specialist from: {agents}
+        manager_system = f"""You are an orchestrating manager. You coordinate specialists to achieve a goal.
 
-Respond with EXACTLY this format, one per line:
-DELEGATE: [agent-type] Clear description of what the specialist must deliver
+Available specialists: {agents}
 
-Nothing else. No commentary. Just the DELEGATE lines."""
+WORKFLOW:
+1. Look at the goal (and any previous results)
+2. Decide what ONE subtask to delegate next
+3. Respond with: DELEGATE: [agent-type] Description of what they must deliver
+4. After seeing the result, decide the next step
+5. When all work is done, respond with: DONE: followed by your final summary
 
-        response = self.manager_llm.call(manager_system, goal)
-        self.spending.track(response.input_tokens, response.output_tokens)
-        self.audit.log_tokens(response.input_tokens, response.output_tokens, "manager")
-        print(f"\r{' '*50}\r", end="")
+RULES:
+- Delegate ONE subtask at a time
+- Use the results from previous subtasks to inform the next delegation
+- When you have enough results, write DONE: and synthesize everything
+- Typically 2-4 subtasks total"""
 
-        # Parse delegations
-        delegations = _parse_delegations(response.text, agents)
+        conversation = [f"GOAL: {goal}"]
+        completed = []  # list of (agent_type, subtask, result)
+        summary = ""
 
-        if not delegations:
-            # Fallback: assign the whole goal to the first agent
-            delegations = [{"agent_type": agents[0], "subtask": goal}]
+        for iteration in range(8):  # max 8 iterations
+            # Build the prompt with conversation history
+            prompt = "\n\n".join(conversation)
+            if completed:
+                prompt += "\n\nWhat's the next step? Respond with DELEGATE: or DONE:"
+            else:
+                prompt += "\n\nBreak this down. What should the first specialist work on?"
 
-        manager_text = response.text
-        if delegations:
-            print(f"\n{DIM}[Manager]: Breaking into {len(delegations)} subtasks{RESET}")
+            print(f"\n{DIM}Manager is thinking...{RESET}", end="", flush=True)
+            response = self.manager_llm.call(manager_system, prompt)
+            self.spending.track(response.input_tokens, response.output_tokens)
+            self.audit.log_tokens(response.input_tokens, response.output_tokens, "manager")
+            print(f"\r{' '*50}\r", end="")
 
-        # Step 2: Execute each subtask
-        results = []
-        for delegation in delegations:
+            manager_text = response.text.strip()
+
+            # Check if manager says DONE
+            if "DONE:" in manager_text.upper():
+                # Extract summary after DONE:
+                done_idx = manager_text.upper().index("DONE:")
+                summary = manager_text[done_idx + 5:].strip()
+                if not summary:
+                    summary = manager_text
+                break
+
+            # Parse delegation
+            delegations = _parse_delegations(manager_text, agents)
+
+            if not delegations:
+                # If no delegation found but we have results, treat as done
+                if completed:
+                    summary = manager_text
+                    break
+                # First iteration with no delegation — try once more with clearer prompt
+                conversation.append(f"[System] Please respond with DELEGATE: [agent-type] description")
+                continue
+
+            # Execute the first delegation (one at a time)
+            delegation = delegations[0]
             agent_type = delegation["agent_type"]
             subtask = delegation["subtask"]
+
+            # Show what the manager decided
+            if manager_text and not manager_text.startswith("DELEGATE:"):
+                # Manager said something before the delegation
+                reasoning = manager_text.split("DELEGATE:")[0].strip()
+                if reasoning:
+                    print(f"\n{DIM}[Manager]: {reasoning[:200]}{RESET}")
 
             # Human approval gate (supervised mode only)
             if self.human_approval:
                 approved, subtask = self._request_delegation_approval(subtask, agent_type)
                 self.audit.log_approval(f"delegate:{agent_type}", approved, "human review")
                 if not approved:
-                    results.append(f"[SKIPPED] {agent_type}: {subtask}")
+                    conversation.append(f"[Result] {agent_type} was skipped by user.")
                     continue
 
             self.emitter.emit("engine.delegating", {
@@ -280,6 +322,12 @@ Nothing else. No commentary. Just the DELEGATE lines."""
                 agent_type=agent_type,
                 station=self.station,
             )
+
+            completed.append((agent_type, subtask, result))
+
+            # Feed result back to manager for next iteration
+            conversation.append(f"DELEGATE: [{agent_type}] {subtask}")
+            conversation.append(f"[Result from {agent_type}]: {result[:2000]}")
 
             # CEO mode: check for worker blocker escalation
             if self.oversight_mode == OversightMode.CEO and "[ESCALATION:BLOCKER]" in result:
@@ -297,7 +345,7 @@ Nothing else. No commentary. Just the DELEGATE lines."""
                         "audit_log": str(log_file),
                     }
                 elif decision != "approve":
-                    result += f"\n\n[CEO REDIRECT] {decision}"
+                    conversation.append(f"[CEO REDIRECT] {decision}")
 
             # CEO mode: check spending threshold
             if self.oversight_mode == OversightMode.CEO and self.spending.should_escalate():
@@ -326,33 +374,32 @@ Nothing else. No commentary. Just the DELEGATE lines."""
                         "audit_log": str(log_file),
                     }
                 if decision != "continue":
-                    result += f"\n\n[USER REDIRECT] {decision}"
+                    conversation.append(f"[USER REDIRECT] {decision}")
 
-            results.append(result)
+            # Check spending
+            ok, msg = self.spending.check()
+            if not ok:
+                print(f"\n  {RED}{msg}{RESET}")
+                break
+        else:
+            # Hit iteration limit — synthesize what we have
+            summary = f"Completed {len(completed)} subtasks (hit iteration limit)."
 
-        # Step 3: Manager synthesizes results
-        print(f"\n{DIM}Manager is synthesizing results...{RESET}", end="", flush=True)
+        # If no summary yet, ask manager to synthesize
+        if not summary or summary.startswith("Completed"):
+            print(f"\n{DIM}Manager is synthesizing results...{RESET}", end="", flush=True)
+            synth_prompt = f"GOAL: {goal[:500]}\n\n"
+            for agent_type, subtask, result in completed:
+                synth_prompt += f"--- {agent_type}: {subtask[:100]} ---\n{result[:2000]}\n\n"
+            synth_prompt += "Synthesize these results into a clear final summary. What was accomplished? What should the user do next?"
 
-        synthesis_prompt = f"""Original goal: {goal[:500]}
-
-Results from {len(results)} specialist(s):
-
-"""
-        for i, (delegation, result) in enumerate(zip(delegations, results), 1):
-            synthesis_prompt += f"--- {delegation['agent_type']} ---\n{result[:3000]}\n\n"
-
-        synthesis_prompt += """Synthesize these results into a clear, actionable final summary.
-Focus on what was accomplished and what the user should do next.
-Be concise but complete."""
-
-        synthesis = self.manager_llm.call(
-            "You are a project manager. Synthesize the specialist results into a clear final summary.",
-            synthesis_prompt,
-        )
-        self.spending.track(synthesis.input_tokens, synthesis.output_tokens)
-        print(f"\r{' '*50}\r", end="")
-
-        summary = synthesis.text
+            synthesis = self.manager_llm.call(
+                "You are a project manager. Write a clear, actionable summary.",
+                synth_prompt,
+            )
+            self.spending.track(synthesis.input_tokens, synthesis.output_tokens)
+            print(f"\r{' '*50}\r", end="")
+            summary = synthesis.text
         self.emitter.emit("engine.completed", {"subtasks": len(delegations)})
         self.audit.log_run_complete(summary, self.spending.tokens_used)
         log_file = self.audit.save()
