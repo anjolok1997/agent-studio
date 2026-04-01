@@ -103,7 +103,6 @@ class Engine:
         llm: LLM = None,
         manager_model: str = "claude-sonnet-4-6",
         worker_model: str = "claude-haiku-4-5-20251001",
-        checker_model: str = "claude-haiku-4-5-20251001",
         emitter: EventEmitter = None,
         permissions: PermissionGuard = None,
         spending_guard: SpendingGuard = None,
@@ -111,6 +110,7 @@ class Engine:
         oversight_mode: OversightMode = OversightMode.CEO,
         mcp_bridge=None,
         provider: str = "auto",
+        mcp_config_path: str = None,
     ):
         self.manager_llm = llm or LLM(provider=provider, model=manager_model)
         self.emitter = emitter or EventEmitter()
@@ -123,8 +123,7 @@ class Engine:
         self.mcp_bridge = mcp_bridge
         self._subtask_count = 0
 
-        worker_llm = LLM(provider=provider, model=worker_model)
-        checker_llm = LLM(provider=provider, model=checker_model)
+        worker_llm = LLM(provider=provider, model=worker_model, mcp_config_path=mcp_config_path)
 
         self.station = Station(
             llm=worker_llm,
@@ -132,9 +131,7 @@ class Engine:
             permissions=self.permissions,
             mcp_bridge=mcp_bridge,
         )
-        self.quality_gate = QualityGate(
-            llm=checker_llm, emitter=self.emitter,
-        )
+        self.quality_gate = QualityGate(emitter=self.emitter)
 
     def _request_delegation_approval(self, subtask: str, agent_type: str) -> bool:
         """Ask the human to approve a subtask delegation."""
@@ -210,7 +207,7 @@ class Engine:
         self.audit.log_escalation(reason.value, context, "approved")
         return "approve"
 
-    def run(self, goal: str, allowed_agents: list[str] = None) -> dict:
+    def run(self, goal: str, allowed_agents: list[str] = None, briefing_context: str = None) -> dict:
         """
         Run the manager agent on a goal.
         Returns {"summary": str, "artifacts": list[dict], "audit_log": str}.
@@ -236,7 +233,14 @@ class Engine:
         manager_system = f"""You are an orchestrating manager. You coordinate specialists to achieve a goal.
 
 Available specialists: {agents}
-
+"""
+        if briefing_context:
+            manager_system += """
+You already discussed the approach with the user in a briefing session. The
+transcript is in your context. Use their preferences and decisions to guide
+your delegation. Do not re-ask questions that were already resolved.
+"""
+        manager_system += """
 WORKFLOW:
 1. Look at the goal (and any previous results)
 2. Decide what ONE subtask to delegate next
@@ -250,7 +254,10 @@ RULES:
 - When you have enough results, write DONE: and synthesize everything
 - Typically 2-4 subtasks total"""
 
-        conversation = [f"GOAL: {goal}"]
+        conversation = []
+        if briefing_context:
+            conversation.append(briefing_context)
+        conversation.append(f"GOAL: {goal}")
         completed = []  # list of (agent_type, subtask, result)
         summary = ""
 

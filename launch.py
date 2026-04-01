@@ -15,7 +15,9 @@ Run:
     python3 launch.py --execute --env staging              # Enable real actions
     python3 launch.py --execute --env prod                 # Production (escalates on all non-SAFE tools)
     python3 launch.py --token-limit 50000                  # Lower spending cap
-    python3 launch.py --mcp-config mcp.yaml                # Connect to MCP servers
+    python3 launch.py mcp add                              # Add an MCP server (interactive)
+    python3 launch.py mcp list                             # Show configured servers
+    python3 launch.py mcp remove <name>                    # Remove a server
 """
 
 import argparse
@@ -332,7 +334,11 @@ def parse_args():
     )
     parser.add_argument(
         "--no-plan", action="store_true",
-        help="Skip the planning phase and go straight to execution"
+        help="Skip the briefing/planning phase and go straight to execution"
+    )
+    parser.add_argument(
+        "--classic-plan", action="store_true",
+        help="Use the classic Haiku planning phase instead of interactive manager briefing"
     )
     # Deprecated flags — map to --supervised with warning
     parser.add_argument(
@@ -378,7 +384,7 @@ def parse_args():
 def _is_one_shot(args) -> bool:
     """Check if the user passed a goal as a positional argument."""
     return (args.command is not None
-            and args.command != "schedule"
+            and args.command not in ("schedule", "mcp")
             and not args.show_models)
 
 
@@ -390,6 +396,29 @@ def main():
         sys.exit(0)
 
     # ─── Schedule subcommand ──────────────────────────────────────────────
+    # ─── MCP subcommand ────────────────────────────────────────────────────
+    if args.command == "mcp":
+        from studio.mcp_cli import cli_mcp_add, cli_mcp_list, cli_mcp_remove
+        mcp_config_path = Path(args.mcp_config)
+
+        if args.subcommand == "add":
+            cli_mcp_add(mcp_config_path)
+            sys.exit(0)
+        elif args.subcommand in ("list", "ls"):
+            cli_mcp_list(mcp_config_path)
+            sys.exit(0)
+        elif args.subcommand == "remove":
+            if not args.schedule_arg:
+                print(f"  {RED}Usage: studio mcp remove <name>{RESET}")
+                sys.exit(1)
+            cli_mcp_remove(args.schedule_arg, mcp_config_path)
+            sys.exit(0)
+        else:
+            # No subcommand — show list + hint
+            cli_mcp_list(mcp_config_path)
+            print(f"  {DIM}Commands: studio mcp add | studio mcp list | studio mcp remove <name>{RESET}\n")
+            sys.exit(0)
+
     if args.command == "schedule":
         from studio.scheduler import (
             cli_add_schedule, cli_list_schedules,
@@ -564,21 +593,37 @@ def main():
     if materials_text:
         goal = f"{materials_text}\n\n{goal}"
 
-    # ─── Planning Phase ───────────────────────────────────────────────────────
+    # ─── Briefing / Planning Phase ──────────────────────────────────────────
 
-    if not args.no_plan:
+    briefing_context = None
+
+    if args.classic_plan and not args.no_plan:
+        # Legacy: Haiku planner with Y/n approval
         planner = Planner(llm=suggest_llm)
 
         print(f"\n{DIM}Planning... (using haiku){RESET}")
         plan = planner.create_plan(goal, agents, worker_model, manager_model)
-
-        # Track planning tokens against spending cap
         spending.track(plan["planning_tokens"], 0)
 
         approved = planner.display_plan(plan, worker_model, manager_model, args.token_limit)
         if not approved:
             print("\nAborted. No tokens spent beyond planning.")
             sys.exit(0)
+
+    elif not args.no_plan:
+        # Default: Interactive manager briefing
+        from studio.briefing import Briefing
+
+        manager_llm = LLM(provider=provider, model=manager_model)
+        briefing = Briefing(llm=manager_llm, agents=agents, goal=goal)
+        briefing_result = briefing.run()
+        spending.track(briefing_result.tokens_used, 0)
+
+        if not briefing_result.approved:
+            print("\nAborted during briefing. No execution tokens spent.")
+            sys.exit(0)
+
+        briefing_context = briefing_result.context
 
     if oversight_mode == OversightMode.CEO:
         print(f"\n  {GREEN}Agents working autonomously. You'll only be asked for critical actions.{RESET}\n")
@@ -592,12 +637,13 @@ def main():
         oversight_mode=oversight_mode,
         mcp_bridge=mcp_bridge,
         provider=provider,
+        mcp_config_path=str(mcp_config_path) if mcp_config_path.exists() else None,
     )
 
     print(f"\n{GREEN}Launching Agent Studio...{RESET}")
     print(f"{DIM}Team: {', '.join(agents)}{RESET}\n")
 
-    result = engine.run(goal, allowed_agents=agents)
+    result = engine.run(goal, allowed_agents=agents, briefing_context=briefing_context)
 
     # ─── Output ───────────────────────────────────────────────────────────────
 
@@ -698,6 +744,7 @@ def main():
             oversight_mode=oversight_mode,
             mcp_bridge=mcp_bridge,
             provider=provider,
+            mcp_config_path=str(mcp_config_path) if mcp_config_path.exists() else None,
         )
 
         result = engine.run(followup_goal, allowed_agents=followup_agents)
