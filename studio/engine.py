@@ -8,6 +8,7 @@ Uses LLM.call() for all model calls — no SDK-specific interfaces.
 """
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 
 from .llm import LLM
@@ -33,14 +34,65 @@ RED = "\033[31m"
 RESET = "\033[0m"
 
 
+def _parse_single_delegation(rest: str, allowed_agents: list[str]) -> dict | None:
+    """Parse a single delegation line into {agent_type, subtask} or None."""
+    # Try bracketed: [agent-type] description
+    match = re.match(r"\[([^\]]+)\]\s*(.*)", rest)
+    if match:
+        agent_type = match.group(1).strip()
+        description = match.group(2).strip()
+    else:
+        # Try unbracketed: agent-type description
+        agent_type = None
+        description = ""
+        for aid in allowed_agents:
+            if rest.lower().startswith(aid):
+                agent_type = aid
+                description = rest[len(aid):].strip()
+                break
+        if not agent_type:
+            return None
+
+    # Strip leading punctuation
+    description = re.sub(r"^[-:—]\s*", "", description)
+
+    # Match to allowed agents (exact or partial)
+    if agent_type in allowed_agents:
+        return {"agent_type": agent_type, "subtask": description}
+    matched = [a for a in allowed_agents if agent_type in a or a in agent_type]
+    if matched:
+        return {"agent_type": matched[0], "subtask": description}
+    return None
+
+
+def _extract_delegation_line(line: str) -> tuple[str | None, bool]:
+    """Extract the rest of a delegation line and whether it's parallel.
+
+    Returns (rest, is_parallel) or (None, False) if not a delegation.
+    """
+    if line.upper().startswith("PARALLEL:"):
+        return line[len("PARALLEL:"):].strip(), True
+    if line.upper().startswith("DELEGATE:"):
+        return line[len("DELEGATE:"):].strip(), False
+    if re.match(r"^\d+[.)]\s*\[", line):
+        return re.sub(r"^\d+[.)]\s*", "", line), False
+    if re.match(r"^\d+[.)]\s+\S", line):
+        return re.sub(r"^\d+[.)]\s*", "", line), False
+    if line.startswith("- [") or line.startswith("* ["):
+        return line[2:].strip(), False
+    if line.startswith("["):
+        return line, False
+    return None, False
+
+
 def _parse_delegations(text: str, allowed_agents: list[str]) -> list[dict]:
     """Parse delegation instructions from the manager's response.
 
     Supports formats:
-        DELEGATE: [agent-type] subtask description
-        DELEGATE: agent-type subtask description
-        [agent-type] subtask description
-        1. [agent-type] subtask description
+        DELEGATE: [agent-type] subtask description   (sequential)
+        PARALLEL: [agent-type] subtask description    (run concurrently)
+
+    Returns list of dicts, each with 'agent_type', 'subtask', and 'parallel' (bool).
     """
     delegations = []
     for line in text.split("\n"):
@@ -48,49 +100,14 @@ def _parse_delegations(text: str, allowed_agents: list[str]) -> list[dict]:
         if not line:
             continue
 
-        rest = None
-
-        if line.upper().startswith("DELEGATE:"):
-            rest = line[len("DELEGATE:"):].strip()
-        elif re.match(r"^\d+[.)]\s*\[", line):
-            rest = re.sub(r"^\d+[.)]\s*", "", line)
-        elif re.match(r"^\d+[.)]\s+\S", line):
-            rest = re.sub(r"^\d+[.)]\s*", "", line)
-        elif line.startswith("- [") or line.startswith("* ["):
-            rest = line[2:].strip()
-        elif line.startswith("["):
-            rest = line
-
+        rest, is_parallel = _extract_delegation_line(line)
         if rest is None:
             continue
 
-        # Try bracketed: [agent-type] description
-        match = re.match(r"\[([^\]]+)\]\s*(.*)", rest)
-        if match:
-            agent_type = match.group(1).strip()
-            description = match.group(2).strip()
-        else:
-            # Try unbracketed: agent-type description
-            agent_type = None
-            description = ""
-            for aid in allowed_agents:
-                if rest.lower().startswith(aid):
-                    agent_type = aid
-                    description = rest[len(aid):].strip()
-                    break
-            if not agent_type:
-                continue
-
-        # Strip leading punctuation
-        description = re.sub(r"^[-:—]\s*", "", description)
-
-        # Match to allowed agents (exact or partial)
-        if agent_type in allowed_agents:
-            delegations.append({"agent_type": agent_type, "subtask": description})
-        else:
-            matched = [a for a in allowed_agents if agent_type in a or a in agent_type]
-            if matched:
-                delegations.append({"agent_type": matched[0], "subtask": description})
+        parsed = _parse_single_delegation(rest, allowed_agents)
+        if parsed:
+            parsed["parallel"] = is_parallel
+            delegations.append(parsed)
 
     return delegations
 
@@ -132,6 +149,103 @@ class Engine:
             mcp_bridge=mcp_bridge,
         )
         self.quality_gate = QualityGate(emitter=self.emitter)
+
+    def _run_single(self, delegation: dict, agents: list[str],
+                    conversation: list[str], completed: list[tuple]) -> str | None:
+        """Execute a single sequential delegation. Returns result or None if stopped."""
+        agent_type = delegation["agent_type"]
+        subtask = delegation["subtask"]
+
+        # Human approval gate (supervised mode only)
+        if self.human_approval:
+            approved, subtask = self._request_delegation_approval(subtask, agent_type)
+            self.audit.log_approval(f"delegate:{agent_type}", approved, "human review")
+            if not approved:
+                conversation.append(f"[Result] {agent_type} was skipped by user.")
+                return ""
+
+        self.emitter.emit("engine.delegating", {
+            "subtask": subtask[:80], "agent_type": agent_type,
+        })
+        self.audit.log_delegation(subtask, agent_type)
+
+        result = self.quality_gate.validate_with_retries(
+            subtask=subtask, agent_type=agent_type, station=self.station,
+        )
+
+        completed.append((agent_type, subtask, result))
+        conversation.append(f"DELEGATE: [{agent_type}] {subtask}")
+        conversation.append(f"[Result from {agent_type}]: {result[:2000]}")
+        return result
+
+    def _run_parallel(self, batch: list[dict], agents: list[str],
+                      conversation: list[str], completed: list[tuple]) -> list[str] | None:
+        """Execute a batch of independent delegations concurrently."""
+        print(f"\n  {CYAN}Running {len(batch)} tasks in parallel...{RESET}")
+
+        # Human approval gate (supervised mode only)
+        approved_batch = []
+        for delegation in batch:
+            agent_type = delegation["agent_type"]
+            subtask = delegation["subtask"]
+            if self.human_approval:
+                approved, subtask = self._request_delegation_approval(subtask, agent_type)
+                self.audit.log_approval(f"delegate:{agent_type}", approved, "human review")
+                if not approved:
+                    conversation.append(f"[Result] {agent_type} was skipped by user.")
+                    continue
+            approved_batch.append({"agent_type": agent_type, "subtask": subtask})
+
+        if not approved_batch:
+            return []
+
+        for d in approved_batch:
+            self.emitter.emit("engine.delegating", {
+                "subtask": d["subtask"][:80], "agent_type": d["agent_type"],
+            })
+            self.audit.log_delegation(d["subtask"], d["agent_type"])
+
+        # Run workers concurrently — each gets its own Station for thread safety
+        results = {}
+        worker_stations = {}
+        with ThreadPoolExecutor(max_workers=len(approved_batch)) as pool:
+            future_to_task = {}
+            for d in approved_batch:
+                worker_station = Station(
+                    llm=self.station.llm,
+                    emitter=self.emitter,
+                    permissions=self.permissions,
+                    mcp_bridge=self.station.mcp_bridge,
+                )
+                worker_stations[d["agent_type"]] = worker_station
+                future = pool.submit(
+                    self.quality_gate.validate_with_retries,
+                    subtask=d["subtask"],
+                    agent_type=d["agent_type"],
+                    station=worker_station,
+                )
+                future_to_task[future] = d
+
+            for future in as_completed(future_to_task):
+                d = future_to_task[future]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    result = f"[ERROR] {d['agent_type']} failed: {e}"
+                results[d["agent_type"]] = (d["subtask"], result)
+
+        # Collect artifacts from all parallel worker stations
+        for station in worker_stations.values():
+            self.station.artifacts.extend(station.artifacts)
+
+        # Feed all results back to conversation
+        for agent_type, (subtask, result) in results.items():
+            completed.append((agent_type, subtask, result))
+            conversation.append(f"PARALLEL: [{agent_type}] {subtask}")
+            conversation.append(f"[Result from {agent_type}]: {result[:2000]}")
+
+        print(f"  {GREEN}All {len(results)} parallel tasks complete.{RESET}")
+        return list(results.values())
 
     def _request_delegation_approval(self, subtask: str, agent_type: str) -> tuple[bool, str]:
         """Ask the human to approve a subtask delegation."""
@@ -243,14 +357,19 @@ your delegation. Do not re-ask questions that were already resolved.
         manager_system += """
 WORKFLOW:
 1. Look at the goal (and any previous results)
-2. Decide what ONE subtask to delegate next
-3. Respond with: DELEGATE: [agent-type] Description of what they must deliver
-4. After seeing the result, decide the next step
-5. When all work is done, respond with: DONE: followed by your final summary
+2. Decide what to delegate next
+3. For sequential work (needs prior results):
+     DELEGATE: [agent-type] Description of what they must deliver
+4. For independent work (can run at the same time):
+     PARALLEL: [agent-type] Task for first specialist
+     PARALLEL: [agent-type] Task for second specialist
+5. After seeing results, decide the next step
+6. When all work is done, respond with: DONE: followed by your final summary
 
 RULES:
-- Delegate ONE subtask at a time
-- Use the results from previous subtasks to inform the next delegation
+- Use PARALLEL: when tasks don't depend on each other — this runs them simultaneously and saves time
+- Use DELEGATE: when a task needs results from a previous step
+- You can mix: PARALLEL a batch, then DELEGATE a follow-up that uses their results
 - When you have enough results, write DONE: and synthesize everything
 - Typically 2-4 subtasks total"""
 
@@ -265,9 +384,9 @@ RULES:
             # Build the prompt with conversation history
             prompt = "\n\n".join(conversation)
             if completed:
-                prompt += "\n\nWhat's the next step? Respond with DELEGATE: or DONE:"
+                prompt += "\n\nWhat's the next step? Respond with DELEGATE:, PARALLEL:, or DONE:"
             else:
-                prompt += "\n\nBreak this down. What should the first specialist work on?"
+                prompt += "\n\nBreak this down. What should the specialists work on? Use PARALLEL: for independent tasks."
 
             print(f"\n{DIM}Manager is thinking...{RESET}", end="", flush=True)
             response = self.manager_llm.call(manager_system, prompt)
@@ -298,61 +417,49 @@ RULES:
                 conversation.append(f"[System] Please respond with DELEGATE: [agent-type] description")
                 continue
 
-            # Execute the first delegation (one at a time)
-            delegation = delegations[0]
-            agent_type = delegation["agent_type"]
-            subtask = delegation["subtask"]
-
-            # Show what the manager decided
-            if manager_text and not manager_text.startswith("DELEGATE:"):
-                # Manager said something before the delegation
-                reasoning = manager_text.split("DELEGATE:")[0].strip()
+            # Show what the manager decided (reasoning before delegations)
+            first_keyword = "PARALLEL:" if delegations[0].get("parallel") else "DELEGATE:"
+            if manager_text and not manager_text.upper().startswith(first_keyword):
+                reasoning = re.split(r"(?:DELEGATE|PARALLEL):", manager_text, maxsplit=1)[0].strip()
                 if reasoning:
                     print(f"\n{DIM}[Manager]: {reasoning[:200]}{RESET}")
 
-            # Human approval gate (supervised mode only)
-            if self.human_approval:
-                approved, subtask = self._request_delegation_approval(subtask, agent_type)
-                self.audit.log_approval(f"delegate:{agent_type}", approved, "human review")
-                if not approved:
-                    conversation.append(f"[Result] {agent_type} was skipped by user.")
-                    continue
+            # Split into parallel batch and sequential
+            parallel_batch = [d for d in delegations if d.get("parallel")]
+            sequential = [d for d in delegations if not d.get("parallel")]
 
-            self.emitter.emit("engine.delegating", {
-                "subtask": subtask[:80],
-                "agent_type": agent_type,
-            })
-            self.audit.log_delegation(subtask, agent_type)
-
-            result = self.quality_gate.validate_with_retries(
-                subtask=subtask,
-                agent_type=agent_type,
-                station=self.station,
-            )
-
-            completed.append((agent_type, subtask, result))
-
-            # Feed result back to manager for next iteration
-            conversation.append(f"DELEGATE: [{agent_type}] {subtask}")
-            conversation.append(f"[Result from {agent_type}]: {result[:2000]}")
+            # If we have a parallel batch, run them concurrently
+            if parallel_batch:
+                batch_results = self._run_parallel(parallel_batch, agents, conversation, completed)
+                if batch_results is None:
+                    # Stopped by escalation
+                    break
+            # Otherwise run the first sequential delegation
+            elif sequential:
+                delegation = sequential[0]
+                single_result = self._run_single(delegation, agents, conversation, completed)
+                if single_result is None:
+                    break
 
             # CEO mode: check for worker blocker escalation
-            if self.oversight_mode == OversightMode.CEO and "[ESCALATION:BLOCKER]" in result:
-                decision = self._escalate(EscalationReason.WORKER_BLOCKER, {
-                    "agent": agent_type,
-                    "subtask": subtask[:120],
-                    "blocker": result[:300],
-                })
-                if decision == "deny":
-                    self.audit.log_run_complete("Stopped by CEO (blocker).", self.spending.tokens_used)
-                    log_file = self.audit.save()
-                    return {
-                        "summary": f"Stopped by CEO after worker blocker.",
-                        "artifacts": self.station.artifacts,
-                        "audit_log": str(log_file),
-                    }
-                elif decision != "approve":
-                    conversation.append(f"[CEO REDIRECT] {decision}")
+            if self.oversight_mode == OversightMode.CEO and completed:
+                last_agent, last_subtask, last_result = completed[-1]
+                if "[ESCALATION:BLOCKER]" in last_result:
+                    decision = self._escalate(EscalationReason.WORKER_BLOCKER, {
+                        "agent": last_agent,
+                        "subtask": last_subtask[:120],
+                        "blocker": last_result[:300],
+                    })
+                    if decision == "deny":
+                        self.audit.log_run_complete("Stopped by CEO (blocker).", self.spending.tokens_used)
+                        log_file = self.audit.save()
+                        return {
+                            "summary": "Stopped by CEO after worker blocker.",
+                            "artifacts": self.station.artifacts,
+                            "audit_log": str(log_file),
+                        }
+                    elif decision != "approve":
+                        conversation.append(f"[CEO REDIRECT] {decision}")
 
             # CEO mode: check spending threshold
             if self.oversight_mode == OversightMode.CEO and self.spending.should_escalate():
@@ -364,14 +471,15 @@ RULES:
                     self.audit.log_run_complete("Stopped by CEO (spending).", self.spending.tokens_used)
                     log_file = self.audit.save()
                     return {
-                        "summary": f"Stopped by CEO at spending threshold.",
+                        "summary": "Stopped by CEO at spending threshold.",
                         "artifacts": self.station.artifacts,
                         "audit_log": str(log_file),
                     }
 
             # SUPERVISED mode: checkpoint
-            if self.oversight_mode == OversightMode.SUPERVISED:
-                decision = self._checkpoint(agent_type, subtask, result)
+            if self.oversight_mode == OversightMode.SUPERVISED and completed:
+                last_agent, last_subtask, last_result = completed[-1]
+                decision = self._checkpoint(last_agent, last_subtask, last_result)
                 if decision == "stop":
                     self.audit.log_run_complete("Stopped by user.", self.spending.tokens_used)
                     log_file = self.audit.save()
