@@ -4,12 +4,12 @@ Agent Studio — A multi-agent orchestration framework.
 Assemble specialist AI agents into teams, pick a template, and let them work.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
+from .llm import LLM, LLMResponse
 from .engine import Engine
 from .station import Station, list_available_agents, load_agent_prompt, get_agent_loader
 from .agent_loader import AgentLoader, AgentInfo
-from .cli_client import CLIClient
 from .scheduler import Schedule, load_schedules, save_schedule
 from .quality_gate import QualityGate
 from .events import EventEmitter, Event

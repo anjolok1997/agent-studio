@@ -1,21 +1,16 @@
 """
 Engine — Manager agent orchestration.
 
-The Engine is the top-level entry point. It breaks a goal into subtasks,
-delegates to specialist workers, validates via the quality gate,
-and synthesizes the final result.
+The Engine breaks a goal into subtasks, delegates to specialist workers,
+validates via the quality gate, and synthesizes the final result.
 
-Oversight modes:
-    CEO        — Agents run autonomously. Human only intervenes for
-                 dangerous tools, production targets, spending thresholds,
-                 or worker-flagged blockers.
-    SUPERVISED — Legacy mode with checkpoints and per-delegation approval.
+Uses LLM.call() for all model calls — no SDK-specific interfaces.
 """
 
-import os
-from anthropic import Anthropic
+import re
 from dotenv import load_dotenv
 
+from .llm import LLM
 from .events import EventEmitter
 from .station import Station, list_available_agents
 from .quality_gate import QualityGate
@@ -24,11 +19,6 @@ from .permissions import (
     OversightMode, EscalationReason,
 )
 from .audit import AuditLog
-
-try:
-    from .mcp_bridge import MCPBridge
-except ImportError:
-    MCPBridge = None
 
 load_dotenv()
 
@@ -43,12 +33,74 @@ RED = "\033[31m"
 RESET = "\033[0m"
 
 
+def _parse_delegations(text: str, allowed_agents: list[str]) -> list[dict]:
+    """Parse delegation instructions from the manager's response.
+
+    Supports formats:
+        DELEGATE: [agent-type] subtask description
+        DELEGATE: agent-type subtask description
+        [agent-type] subtask description
+        1. [agent-type] subtask description
+    """
+    delegations = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+
+        rest = None
+
+        if line.upper().startswith("DELEGATE:"):
+            rest = line[len("DELEGATE:"):].strip()
+        elif re.match(r"^\d+[.)]\s*\[", line):
+            rest = re.sub(r"^\d+[.)]\s*", "", line)
+        elif re.match(r"^\d+[.)]\s+\S", line):
+            rest = re.sub(r"^\d+[.)]\s*", "", line)
+        elif line.startswith("- [") or line.startswith("* ["):
+            rest = line[2:].strip()
+        elif line.startswith("["):
+            rest = line
+
+        if rest is None:
+            continue
+
+        # Try bracketed: [agent-type] description
+        match = re.match(r"\[([^\]]+)\]\s*(.*)", rest)
+        if match:
+            agent_type = match.group(1).strip()
+            description = match.group(2).strip()
+        else:
+            # Try unbracketed: agent-type description
+            agent_type = None
+            description = ""
+            for aid in allowed_agents:
+                if rest.lower().startswith(aid):
+                    agent_type = aid
+                    description = rest[len(aid):].strip()
+                    break
+            if not agent_type:
+                continue
+
+        # Strip leading punctuation
+        description = re.sub(r"^[-:—]\s*", "", description)
+
+        # Match to allowed agents (exact or partial)
+        if agent_type in allowed_agents:
+            delegations.append({"agent_type": agent_type, "subtask": description})
+        else:
+            matched = [a for a in allowed_agents if agent_type in a or a in agent_type]
+            if matched:
+                delegations.append({"agent_type": matched[0], "subtask": description})
+
+    return delegations
+
+
 class Engine:
     """Orchestrates specialist agents to achieve a goal."""
 
     def __init__(
         self,
-        client: Anthropic = None,
+        llm: LLM = None,
         manager_model: str = "claude-sonnet-4-6",
         worker_model: str = "claude-haiku-4-5-20251001",
         checker_model: str = "claude-haiku-4-5-20251001",
@@ -58,56 +110,31 @@ class Engine:
         audit: AuditLog = None,
         oversight_mode: OversightMode = OversightMode.CEO,
         mcp_bridge=None,
+        provider: str = "auto",
     ):
-        self.client = client or Anthropic()
-        self.manager_model = manager_model
+        self.manager_llm = llm or LLM(provider=provider, model=manager_model)
         self.emitter = emitter or EventEmitter()
         self.permissions = permissions or PermissionGuard()
         self.spending = spending_guard or SpendingGuard()
         self.audit = audit or AuditLog()
         self.oversight_mode = oversight_mode
-        # Derive legacy flags from oversight mode
         self.human_approval = (oversight_mode == OversightMode.SUPERVISED)
         self.checkpoints = (oversight_mode == OversightMode.SUPERVISED)
         self.mcp_bridge = mcp_bridge
         self._subtask_count = 0
+
+        worker_llm = LLM(provider=provider, model=worker_model)
+        checker_llm = LLM(provider=provider, model=checker_model)
+
         self.station = Station(
-            self.client, worker_model=worker_model,
-            emitter=self.emitter, permissions=self.permissions,
+            llm=worker_llm,
+            emitter=self.emitter,
+            permissions=self.permissions,
             mcp_bridge=mcp_bridge,
         )
         self.quality_gate = QualityGate(
-            self.client, checker_model=checker_model, emitter=self.emitter,
+            llm=checker_llm, emitter=self.emitter,
         )
-
-    def _build_tools(self, allowed_agents: list[str] = None) -> list[dict]:
-        """Build manager tools, optionally restricted to specific agents."""
-        agents = allowed_agents or list_available_agents()
-        return [
-            {
-                "name": "delegate_task",
-                "description": (
-                    "Delegate a focused subtask to the right specialist agent. "
-                    "The specialist will complete the work and a QA agent will validate it. "
-                    f"Available agent types: {agents}"
-                ),
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "subtask": {
-                            "type": "string",
-                            "description": "Clear, self-contained description of what the specialist must deliver",
-                        },
-                        "agent_type": {
-                            "type": "string",
-                            "enum": agents,
-                            "description": "Which specialist to assign this subtask to",
-                        },
-                    },
-                    "required": ["subtask", "agent_type"],
-                },
-            },
-        ]
 
     def _request_delegation_approval(self, subtask: str, agent_type: str) -> bool:
         """Ask the human to approve a subtask delegation."""
@@ -127,11 +154,6 @@ class Engine:
         return True, subtask
 
     def _checkpoint(self, agent_type: str, subtask: str, result: str) -> str:
-        """
-        Checkpoint after a subtask completes. Shows the result and lets the
-        user continue, stop, or redirect.
-        Returns: "continue", "stop", or a revised instruction string.
-        """
         if not self.checkpoints:
             return "continue"
 
@@ -156,10 +178,6 @@ class Engine:
         return "continue"
 
     def _escalate(self, reason: EscalationReason, context: dict) -> str:
-        """
-        CEO escalation — pause execution and wait for human decision.
-        Returns: "approve", "deny", or a modified instruction string.
-        """
         self.emitter.emit("engine.escalation", {"reason": reason.value, **context})
 
         reason_labels = {
@@ -171,13 +189,11 @@ class Engine:
         label = reason_labels.get(reason, reason.value)
 
         print(f"\n  {RED}{'='*56}{RESET}")
-        print(f"  {BOLD}⚠  ESCALATION — CEO APPROVAL REQUIRED{RESET}")
+        print(f"  {BOLD}ESCALATION — CEO APPROVAL REQUIRED{RESET}")
         print(f"  {BOLD}Reason:{RESET} {label}")
         print(f"  {RED}{'='*56}{RESET}")
-
         for key, value in context.items():
             print(f"  {CYAN}{key}:{RESET}  {str(value)[:200]}")
-
         print(f"  {RED}{'='*56}{RESET}")
         print(f"  [{GREEN}Y{RESET}] Approve   [{RED}n{RESET}] Deny   [{YELLOW}m{RESET}] Modify")
 
@@ -194,199 +210,158 @@ class Engine:
         self.audit.log_escalation(reason.value, context, "approved")
         return "approve"
 
-    def _check_spending(self, response) -> bool:
-        """Track tokens and check spending limit."""
-        if hasattr(response, "usage"):
-            self.spending.track(response.usage.input_tokens, response.usage.output_tokens)
-            self.audit.log_tokens(
-                response.usage.input_tokens,
-                response.usage.output_tokens,
-                self.manager_model,
-            )
-        ok, msg = self.spending.check()
-        if not ok:
-            print(f"\n  {RED}{msg}{RESET}")
-            return False
-        return True
-
     def run(self, goal: str, allowed_agents: list[str] = None) -> dict:
         """
         Run the manager agent on a goal.
         Returns {"summary": str, "artifacts": list[dict], "audit_log": str}.
         """
         agents = allowed_agents or list_available_agents()
-        tools = self._build_tools(agents)
 
         self.audit.log_run_start(goal, agents, self.permissions.mode.value)
         self.emitter.emit("engine.started", {"goal": goal, "agents": agents})
 
         unit = "turns" if self.spending.subscription_mode else "tokens"
         print(f"\n{'='*60}")
-        print(f"{BOLD}GOAL:{RESET} {goal}")
+        print(f"{BOLD}GOAL:{RESET} {goal[:200]}")
         print(f"{BOLD}Team:{RESET} {', '.join(agents)}")
         print(f"{BOLD}Mode:{RESET} {self.permissions.get_oversight_label()}")
         print(f"{BOLD}Limit:{RESET} {self.spending.max_tokens:,} {unit}")
         print(f"{'='*60}\n")
 
-        system = f"""You are an orchestrating manager agent. When given a goal:
-1. Break it into 2-4 focused subtasks.
-2. For each subtask, pick the right specialist from: {agents}
-3. Use delegate_task to assign each subtask — work sequentially, one at a time.
-4. After all workers finish, synthesize their results into a final project summary.
+        # Step 1: Manager breaks goal into subtasks
+        print(f"{DIM}Manager is breaking down your task...{RESET}", end="", flush=True)
 
-Choosing the right specialist matters. Pick the best fit for each subtask."""
+        manager_system = f"""You are an orchestrating manager. Break the goal into 2-4 focused subtasks.
+For each subtask, assign the best specialist from: {agents}
 
-        messages = [{"role": "user", "content": goal}]
+Respond with EXACTLY this format, one per line:
+DELEGATE: [agent-type] Clear description of what the specialist must deliver
 
-        for iteration in range(12):
-            self.emitter.emit("engine.iteration", {"iteration": iteration + 1})
+Nothing else. No commentary. Just the DELEGATE lines."""
 
-            if iteration == 0:
-                print(f"{DIM}Manager is breaking down your task...{RESET}", end="", flush=True)
-            else:
-                print(f"{DIM}Manager is synthesizing results...{RESET}", end="", flush=True)
+        response = self.manager_llm.call(manager_system, goal)
+        self.spending.track(response.input_tokens, response.output_tokens)
+        self.audit.log_tokens(response.input_tokens, response.output_tokens, "manager")
+        print(f"\r{' '*50}\r", end="")
 
-            response = self.client.messages.create(
-                model=self.manager_model,
-                max_tokens=2048,
-                system=system,
-                tools=tools,
-                messages=messages,
-            )
-            messages.append({"role": "assistant", "content": response.content})
-            print(f"\r{' ' * 50}\r", end="")  # Clear the "working" line
+        # Parse delegations
+        delegations = _parse_delegations(response.text, agents)
 
-            if not self._check_spending(response):
-                break
+        if not delegations:
+            # Fallback: assign the whole goal to the first agent
+            delegations = [{"agent_type": agents[0], "subtask": goal}]
 
-            if response.stop_reason == "end_turn":
-                summary = next(
-                    (b.text for b in response.content if hasattr(b, "text")),
-                    "(no summary)"
-                )
-                # Clean up JSON-wrapped responses from CLI client
-                if summary.strip().startswith("{"):
-                    try:
-                        import json
-                        parsed = json.loads(summary)
-                        summary = parsed.get("final_text", summary)
-                    except (json.JSONDecodeError, KeyError):
-                        pass
-                self.emitter.emit("engine.completed", {"iterations": iteration + 1})
-                self.audit.log_run_complete(summary, self.spending.tokens_used)
-                log_file = self.audit.save()
-                print(f"\nMANAGER DONE after {iteration + 1} iteration(s).")
-                print(f"{DIM}Tokens used: {self.spending.tokens_used:,} | Audit log: {log_file}{RESET}\n")
-                return {
-                    "summary": summary,
-                    "artifacts": self.station.artifacts,
-                    "audit_log": str(log_file),
-                }
+        manager_text = response.text
+        if delegations:
+            print(f"\n{DIM}[Manager]: Breaking into {len(delegations)} subtasks{RESET}")
 
-            tool_results = []
-            for block in response.content:
-                if hasattr(block, "text") and block.text:
-                    # Clean JSON from CLI client
-                    text = block.text
-                    if text.strip().startswith("{"):
-                        try:
-                            import json
-                            parsed = json.loads(text)
-                            text = parsed.get("reasoning", text)
-                        except (json.JSONDecodeError, KeyError):
-                            pass
-                    if text.strip():
-                        print(f"\n{DIM}[Manager]: {text[:200]}{RESET}")
-                if block.type != "tool_use":
+        # Step 2: Execute each subtask
+        results = []
+        for delegation in delegations:
+            agent_type = delegation["agent_type"]
+            subtask = delegation["subtask"]
+
+            # Human approval gate (supervised mode only)
+            if self.human_approval:
+                approved, subtask = self._request_delegation_approval(subtask, agent_type)
+                self.audit.log_approval(f"delegate:{agent_type}", approved, "human review")
+                if not approved:
+                    results.append(f"[SKIPPED] {agent_type}: {subtask}")
                     continue
 
-                subtask = block.input["subtask"]
-                agent_type = block.input["agent_type"]
+            self.emitter.emit("engine.delegating", {
+                "subtask": subtask[:80],
+                "agent_type": agent_type,
+            })
+            self.audit.log_delegation(subtask, agent_type)
 
-                # Human approval gate
-                if self.human_approval:
-                    approved, subtask = self._request_delegation_approval(subtask, agent_type)
-                    self.audit.log_approval(f"delegate:{agent_type}", approved, "human review")
-                    if not approved:
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": "[SKIPPED] User chose to skip this subtask.",
-                        })
-                        continue
+            result = self.quality_gate.validate_with_retries(
+                subtask=subtask,
+                agent_type=agent_type,
+                station=self.station,
+            )
 
-                self.emitter.emit("engine.delegating", {
-                    "subtask": subtask[:80],
-                    "agent_type": agent_type,
+            # CEO mode: check for worker blocker escalation
+            if self.oversight_mode == OversightMode.CEO and "[ESCALATION:BLOCKER]" in result:
+                decision = self._escalate(EscalationReason.WORKER_BLOCKER, {
+                    "agent": agent_type,
+                    "subtask": subtask[:120],
+                    "blocker": result[:300],
                 })
-                self.audit.log_delegation(subtask, agent_type)
+                if decision == "deny":
+                    self.audit.log_run_complete("Stopped by CEO (blocker).", self.spending.tokens_used)
+                    log_file = self.audit.save()
+                    return {
+                        "summary": f"Stopped by CEO after worker blocker.",
+                        "artifacts": self.station.artifacts,
+                        "audit_log": str(log_file),
+                    }
+                elif decision != "approve":
+                    result += f"\n\n[CEO REDIRECT] {decision}"
 
-                result = self.quality_gate.validate_with_retries(
-                    subtask=subtask,
-                    agent_type=agent_type,
-                    station=self.station,
-                )
-
-                # CEO mode: check for worker blocker escalation
-                if self.oversight_mode == OversightMode.CEO and "[ESCALATION:BLOCKER]" in result:
-                    decision = self._escalate(EscalationReason.WORKER_BLOCKER, {
-                        "agent": agent_type,
-                        "subtask": subtask[:120],
-                        "blocker": result[:300],
-                    })
-                    if decision == "deny":
-                        print(f"\n{YELLOW}Stopped by CEO after worker blocker.{RESET}")
-                        self.audit.log_run_complete("Stopped by CEO (blocker).", self.spending.tokens_used)
-                        log_file = self.audit.save()
-                        return {
-                            "summary": f"Stopped by CEO after worker blocker in subtask '{subtask[:80]}'.",
-                            "artifacts": self.station.artifacts,
-                            "audit_log": str(log_file),
-                        }
-                    elif decision != "approve":
-                        result += f"\n\n[CEO REDIRECT] {decision}"
-
-                # CEO mode: check spending threshold escalation
-                if self.oversight_mode == OversightMode.CEO and self.spending.should_escalate():
-                    decision = self._escalate(EscalationReason.SPENDING_THRESHOLD, {
-                        "tokens_used": f"{self.spending.tokens_used:,}",
-                        "max_tokens": f"{self.spending.max_tokens:,}",
-                        "percent": f"{self.spending.tokens_used / self.spending.max_tokens:.0%}",
-                    })
-                    if decision == "deny":
-                        print(f"\n{YELLOW}Stopped by CEO at spending threshold.{RESET}")
-                        self.audit.log_run_complete("Stopped by CEO (spending).", self.spending.tokens_used)
-                        log_file = self.audit.save()
-                        return {
-                            "summary": f"Stopped by CEO at spending threshold ({self.spending.tokens_used:,} tokens).",
-                            "artifacts": self.station.artifacts,
-                            "audit_log": str(log_file),
-                        }
-
-                # SUPERVISED mode: checkpoint after every subtask
-                if self.oversight_mode == OversightMode.SUPERVISED:
-                    decision = self._checkpoint(agent_type, subtask, result)
-                    if decision == "stop":
-                        print(f"\n{YELLOW}Stopped by user after subtask {self._subtask_count}.{RESET}")
-                        self.audit.log_run_complete("Stopped by user.", self.spending.tokens_used)
-                        log_file = self.audit.save()
-                        print(f"{DIM}Tokens used: {self.spending.tokens_used:,} | Audit log: {log_file}{RESET}\n")
-                        return {
-                            "summary": f"Stopped by user after {self._subtask_count} subtask(s). Partial results collected.",
-                            "artifacts": self.station.artifacts,
-                            "audit_log": str(log_file),
-                        }
-                    if decision != "continue":
-                        result += f"\n\n[USER REDIRECT] The user wants to change direction: {decision}"
-
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result,
+            # CEO mode: check spending threshold
+            if self.oversight_mode == OversightMode.CEO and self.spending.should_escalate():
+                decision = self._escalate(EscalationReason.SPENDING_THRESHOLD, {
+                    "tokens_used": f"{self.spending.tokens_used:,}",
+                    "max_tokens": f"{self.spending.max_tokens:,}",
                 })
+                if decision == "deny":
+                    self.audit.log_run_complete("Stopped by CEO (spending).", self.spending.tokens_used)
+                    log_file = self.audit.save()
+                    return {
+                        "summary": f"Stopped by CEO at spending threshold.",
+                        "artifacts": self.station.artifacts,
+                        "audit_log": str(log_file),
+                    }
 
-            messages.append({"role": "user", "content": tool_results})
+            # SUPERVISED mode: checkpoint
+            if self.oversight_mode == OversightMode.SUPERVISED:
+                decision = self._checkpoint(agent_type, subtask, result)
+                if decision == "stop":
+                    self.audit.log_run_complete("Stopped by user.", self.spending.tokens_used)
+                    log_file = self.audit.save()
+                    return {
+                        "summary": f"Stopped by user after {self._subtask_count} subtask(s).",
+                        "artifacts": self.station.artifacts,
+                        "audit_log": str(log_file),
+                    }
+                if decision != "continue":
+                    result += f"\n\n[USER REDIRECT] {decision}"
 
-        self.audit.log_run_complete("Manager hit iteration limit.", self.spending.tokens_used)
-        self.audit.save()
-        return {"summary": "Manager hit iteration limit.", "artifacts": self.station.artifacts}
+            results.append(result)
+
+        # Step 3: Manager synthesizes results
+        print(f"\n{DIM}Manager is synthesizing results...{RESET}", end="", flush=True)
+
+        synthesis_prompt = f"""Original goal: {goal[:500]}
+
+Results from {len(results)} specialist(s):
+
+"""
+        for i, (delegation, result) in enumerate(zip(delegations, results), 1):
+            synthesis_prompt += f"--- {delegation['agent_type']} ---\n{result[:3000]}\n\n"
+
+        synthesis_prompt += """Synthesize these results into a clear, actionable final summary.
+Focus on what was accomplished and what the user should do next.
+Be concise but complete."""
+
+        synthesis = self.manager_llm.call(
+            "You are a project manager. Synthesize the specialist results into a clear final summary.",
+            synthesis_prompt,
+        )
+        self.spending.track(synthesis.input_tokens, synthesis.output_tokens)
+        print(f"\r{' '*50}\r", end="")
+
+        summary = synthesis.text
+        self.emitter.emit("engine.completed", {"subtasks": len(delegations)})
+        self.audit.log_run_complete(summary, self.spending.tokens_used)
+        log_file = self.audit.save()
+
+        ok, spend_msg = self.spending.check()
+        print(f"\n{GREEN}Done.{RESET} {DIM}{spend_msg} | Audit: {log_file}{RESET}\n")
+
+        return {
+            "summary": summary,
+            "artifacts": self.station.artifacts,
+            "audit_log": str(log_file),
+        }

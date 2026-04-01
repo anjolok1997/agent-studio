@@ -255,12 +255,13 @@ def cli_remove_schedule(name: str):
         print(f"\n  {RED}Not found:{RESET} {name}\n")
 
 
-def cli_run_once(client, schedule_name: str = None):
+def cli_run_once(llm, schedule_name: str = None):
     """Run all due schedules (or a specific one) once."""
     from .permissions import PermissionGuard, ExecutionMode, SpendingGuard, OversightMode
     from .audit import AuditLog
     from .engine import Engine
     from .agent_loader import AgentLoader
+    from .llm import LLM
 
     schedules = load_schedules()
     if schedule_name:
@@ -293,7 +294,7 @@ def cli_run_once(client, schedule_name: str = None):
             if not agents:
                 # Auto-suggest agents for the goal
                 from launch import suggest_agents
-                agents = suggest_agents(client, schedule.goal, loader)
+                agents = suggest_agents(llm, schedule.goal, loader)
                 agent_names = []
                 for aid in agents:
                     info = loader.get_agent(aid)
@@ -309,13 +310,13 @@ def cli_run_once(client, schedule_name: str = None):
             audit = AuditLog()
 
             engine = Engine(
-                client=client,
                 manager_model=manager_model,
                 worker_model=worker_model,
                 permissions=permissions,
                 spending_guard=spending,
                 audit=audit,
                 oversight_mode=OversightMode.CEO,
+                provider=llm.provider,
             )
 
             result = engine.run(schedule.goal, allowed_agents=agents)
@@ -339,7 +340,7 @@ def cli_run_once(client, schedule_name: str = None):
         print(f"\n  {GREEN}{ran} task(s) completed.{RESET}\n")
 
 
-def cli_daemon(client):
+def cli_daemon(llm):
     """Run the scheduler daemon — checks and runs due tasks continuously."""
     print(f"\n{BOLD}Agent Studio Scheduler{RESET}")
     print(f"{DIM}Checking for due tasks every 60 seconds. Ctrl+C to stop.{RESET}\n")
@@ -352,7 +353,7 @@ def cli_daemon(client):
             if due:
                 for s in due:
                     print(f"  {CYAN}[{datetime.now().strftime('%H:%M')}]{RESET} Running: {s.name}")
-                    cli_run_once(client, s.name)
+                    cli_run_once(llm, s.name)
             else:
                 next_runs = []
                 for s in schedules:

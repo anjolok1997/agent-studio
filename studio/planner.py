@@ -12,8 +12,8 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from anthropic import Anthropic
 
+from .llm import LLM
 from .events import EventEmitter
 
 # ─── ANSI Colors ──────────────────────────────────────────────────────────────
@@ -328,10 +328,8 @@ class Planner:
     Uses Haiku for the planning call to minimize cost.
     """
 
-    def __init__(self, client: Anthropic, planner_model: str = "claude-haiku-4-5-20251001",
-                 emitter: EventEmitter = None):
-        self.client = client
-        self.planner_model = planner_model
+    def __init__(self, llm: LLM = None, emitter: EventEmitter = None, provider: str = "auto"):
+        self.llm = llm or LLM(provider=provider, model="claude-haiku-4-5-20251001")
         self.emitter = emitter or EventEmitter()
 
     def create_plan(self, goal: str, allowed_agents: list[str],
@@ -360,63 +358,22 @@ class Planner:
             material_note = f"[User provided ~{material_tokens:,} tokens of reference material]"
             planning_goal = f"{before}{material_note}{after}"
 
-        response = self.client.messages.create(
-            model=self.planner_model,
-            max_tokens=512,
-            system=(
-                "You are a project planner. Given a goal and available specialists, "
-                "break it into 2-4 focused subtasks. For each subtask, assign the best specialist.\n\n"
-                "Respond in EXACTLY this format, one subtask per line:\n"
-                "SUBTASK: [agent-type] Description of the subtask\n\n"
-                "Nothing else. No numbering, no extra text."
-            ),
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Goal: {planning_goal}\n\n"
-                    f"Available specialists: {', '.join(allowed_agents)}\n\n"
-                    f"Break this into 2-4 subtasks."
-                )
-            }],
+        system = (
+            "You are a project planner. Given a goal and available specialists, "
+            "break it into 2-4 focused subtasks. For each subtask, assign the best specialist.\n\n"
+            "Respond in EXACTLY this format, one subtask per line:\n"
+            "SUBTASK: [agent-type] Description of the subtask\n\n"
+            "Nothing else. No numbering, no extra text."
+        )
+        prompt = (
+            f"Goal: {planning_goal}\n\n"
+            f"Available specialists: {', '.join(allowed_agents)}\n\n"
+            f"Break this into 2-4 subtasks."
         )
 
-        plan_text = response.content[0].text.strip()
-        planning_tokens = 0
-        if hasattr(response, "usage"):
-            planning_tokens = response.usage.input_tokens + response.usage.output_tokens
-
-        # Debug: dump raw plan text to file for diagnosis
-        try:
-            Path("/tmp/studio_planner_debug.txt").write_text(
-                f"allowed_agents: {allowed_agents}\n\n"
-                f"plan_text:\n{plan_text}\n"
-            )
-        except Exception:
-            pass
-
-        # Handle CLI client JSON-wrapped responses
-        if plan_text.startswith("{"):
-            try:
-                import json
-                parsed = json.loads(plan_text)
-                if isinstance(parsed.get("final_text"), str):
-                    plan_text = parsed["final_text"]
-                elif isinstance(parsed.get("result"), str):
-                    plan_text = parsed["result"]
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-        # Strip markdown code fences if present
-        if "```" in plan_text:
-            lines = plan_text.split("\n")
-            cleaned = []
-            in_fence = False
-            for line in lines:
-                if line.strip().startswith("```"):
-                    in_fence = not in_fence
-                    continue
-                cleaned.append(line)
-            plan_text = "\n".join(cleaned)
+        response = self.llm.call(system, prompt, max_tokens=512)
+        plan_text = response.text.strip()
+        planning_tokens = response.input_tokens + response.output_tokens
 
         # Parse subtasks — supports multiple formats:
         #   SUBTASK: [agent-type] Description

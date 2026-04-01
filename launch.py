@@ -33,6 +33,7 @@ from studio import Engine, list_available_agents, PermissionGuard, ExecutionMode
 from studio.permissions import OversightMode
 from studio.planner import Planner
 from studio.agent_loader import AgentLoader
+from studio.llm import LLM
 
 load_dotenv()
 
@@ -119,7 +120,7 @@ def print_model_menu():
     print(f"  {DIM}Set with --manager-model and --worker-model{RESET}\n")
 
 
-def suggest_agents(client, goal: str, loader: AgentLoader) -> list[str]:
+def suggest_agents(llm: LLM, goal: str, loader: AgentLoader) -> list[str]:
     """Use a quick LLM call to suggest the best agents for a goal."""
     all_agents = loader.list_agents()
 
@@ -139,20 +140,13 @@ AVAILABLE AGENTS:
 
 Respond with ONLY the agent IDs, one per line. Pick 2-4 agents. Nothing else."""
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    response = llm.call(
+        "You are a team builder. Pick the best specialist agents for the goal. Respond with only agent IDs, one per line.",
+        prompt,
         max_tokens=256,
-        system="You are a team builder. Pick the best specialist agents for the goal. Respond with only agent IDs, one per line.",
-        messages=[{"role": "user", "content": prompt}],
     )
 
-    # Parse agent IDs from response
-    result_text = ""
-    for block in response.content:
-        if hasattr(block, "text"):
-            result_text = block.text
-            break
-
+    result_text = response.text
     suggested = []
     for line in result_text.strip().splitlines():
         agent_id = line.strip().lstrip("- ").strip()
@@ -415,26 +409,17 @@ def main():
             cli_remove_schedule(args.schedule_arg)
             sys.exit(0)
         elif args.subcommand in ("run", "daemon"):
-            # Need a client for running tasks
-            use_cli = not args.api_key
-            if use_cli:
-                if not shutil.which("claude"):
-                    print(f"\n  {RED}Claude CLI not found. Install or use --api-key.{RESET}")
-                    sys.exit(1)
-                from studio.cli_client import CLIClient
-                client = CLIClient()
-            else:
-                load_dotenv()
-                if not os.environ.get("ANTHROPIC_API_KEY"):
-                    print(f"\n  {RED}ANTHROPIC_API_KEY not set.{RESET}")
-                    sys.exit(1)
-                from anthropic import Anthropic
-                client = Anthropic()
+            sched_provider = "api" if args.api_key else "cli"
+            try:
+                sched_llm = LLM(provider=sched_provider)
+            except RuntimeError as e:
+                print(f"\n  {RED}{e}{RESET}")
+                sys.exit(1)
 
             if args.subcommand == "run":
-                cli_run_once(client, args.schedule_arg)
+                cli_run_once(sched_llm, args.schedule_arg)
             else:
-                cli_daemon(client)
+                cli_daemon(sched_llm)
             sys.exit(0)
         else:
             print(f"\n{BOLD}Schedule commands:{RESET}")
@@ -456,29 +441,19 @@ def main():
     if args.no_checkpoints and not args.supervised:
         print(f"  {YELLOW}--no-checkpoints is deprecated. CEO mode (default) has no checkpoints.{RESET}")
 
-    # Determine auth method: Claude CLI (default) vs API key
-    use_cli = not args.api_key
+    # Determine provider: CLI (default) vs API key
+    provider = "api" if args.api_key else "cli"
 
-    if use_cli:
-        if not shutil.which("claude"):
-            print(f"\n  {RED}Claude CLI not found.{RESET}")
-            print(f"  Install: npm install -g @anthropic-ai/claude-code")
-            print(f"  Or use API key mode: python3 launch.py --api-key\n")
-            sys.exit(1)
-        from studio.cli_client import CLIClient
-        client = CLIClient()
-        print(f"  {GREEN}Signed in via Claude CLI{RESET} (no API key needed)")
-    else:
-        load_dotenv()
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            print(f"\n  {RED}ANTHROPIC_API_KEY not set.{RESET}")
-            print(f"  Set in .env file or environment variable.")
-            print(f"  Or use Claude CLI login (default): python3 launch.py\n")
-            sys.exit(1)
-        from anthropic import Anthropic
-        client = Anthropic()
-        print(f"  {CYAN}API key mode{RESET} — using Anthropic SDK (pay-per-token)")
+    try:
+        # Quick LLM for agent suggestion (uses haiku)
+        suggest_llm = LLM(provider=provider, model="claude-haiku-4-5-20251001")
+        if provider == "cli":
+            print(f"  {GREEN}Signed in via Claude CLI{RESET}")
+        else:
+            print(f"  {CYAN}Using API key{RESET}")
+    except RuntimeError as e:
+        print(f"\n  {RED}{e}{RESET}")
+        sys.exit(1)
 
     # Model selection
     manager_model, worker_model = pick_models_interactive(args)
@@ -487,6 +462,7 @@ def main():
     # Set up safety layers
     mode = ExecutionMode.EXECUTE if args.execute else ExecutionMode.DRY_RUN
     permissions = PermissionGuard(mode=mode, environment=args.env, oversight=oversight_mode)
+    use_cli = provider == "cli"
     spending = SpendingGuard(
         max_tokens=args.token_limit,
         subscription_mode=use_cli,
@@ -571,7 +547,7 @@ def main():
             sys.exit(1)
 
         print(f"\n{DIM}Assembling team...{RESET}")
-        agents = suggest_agents(client, goal, loader)
+        agents = suggest_agents(suggest_llm, goal, loader)
 
         # Show the team briefly (no approval needed — just info)
         agent_names = []
@@ -591,7 +567,7 @@ def main():
     # ─── Planning Phase ───────────────────────────────────────────────────────
 
     if not args.no_plan:
-        planner = Planner(client)
+        planner = Planner(llm=suggest_llm)
 
         print(f"\n{DIM}Planning... (using haiku){RESET}")
         plan = planner.create_plan(goal, agents, worker_model, manager_model)
@@ -608,7 +584,6 @@ def main():
         print(f"\n  {GREEN}Agents working autonomously. You'll only be asked for critical actions.{RESET}\n")
 
     engine = Engine(
-        client=client,
         manager_model=manager_model,
         worker_model=worker_model,
         permissions=permissions,
@@ -616,6 +591,7 @@ def main():
         audit=audit,
         oversight_mode=oversight_mode,
         mcp_bridge=mcp_bridge,
+        provider=provider,
     )
 
     print(f"\n{GREEN}Launching Agent Studio...{RESET}")
@@ -699,7 +675,7 @@ def main():
 
         # Auto-suggest agents for the follow-up
         print(f"\n{DIM}Assembling team...{RESET}")
-        followup_agents = suggest_agents(client, followup, loader)
+        followup_agents = suggest_agents(suggest_llm, followup, loader)
         agent_names = []
         for agent_id in followup_agents:
             info = loader.get_agent(agent_id)
@@ -714,7 +690,6 @@ def main():
         audit = AuditLog()
 
         engine = Engine(
-            client=client,
             manager_model=manager_model,
             worker_model=worker_model,
             permissions=permissions,
@@ -722,6 +697,7 @@ def main():
             audit=audit,
             oversight_mode=oversight_mode,
             mcp_bridge=mcp_bridge,
+            provider=provider,
         )
 
         result = engine.run(followup_goal, allowed_agents=followup_agents)
