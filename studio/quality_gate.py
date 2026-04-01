@@ -1,71 +1,111 @@
 """
-Quality Gate — Validates worker output against subtask requirements.
+Quality Gate — User spot-check for worker output.
+
+Instead of an LLM checking another LLM's work (same blind spots),
+the user sees a quick summary and decides: approve, retry with
+feedback, or edit directly.
 """
 
-from .llm import LLM
 from .events import EventEmitter
-from .station import Station, load_agent_prompt
+from .station import Station
 
 MAX_RETRIES = 2
-MIN_QA_LENGTH = 200
-AUTO_APPROVE_LENGTH = 15_000
+PREVIEW_CHARS = 600
+
+# ─── Colors ──────────────────────────────────────────────────────────────────
+
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+GREEN = "\033[32m"
+CYAN = "\033[36m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+
+
+def _preview(text: str, max_chars: int = PREVIEW_CHARS) -> str:
+    """Return first and last few lines for a quick glance."""
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+
+    half = max_chars // 2
+    head = text[:half].rstrip()
+    tail = text[-half:].lstrip()
+    omitted = len(text) - len(head) - len(tail)
+    return f"{head}\n\n  {DIM}... ({omitted:,} chars omitted) ...{RESET}\n\n{tail}"
 
 
 class QualityGate:
-    """Validates worker output using the Reality Checker agent."""
+    """User spot-check: shows worker output, lets user approve/reject/edit."""
 
-    def __init__(self, llm: LLM = None, emitter: EventEmitter = None):
-        self.llm = llm or LLM()
+    def __init__(self, emitter: EventEmitter = None, auto_approve: bool = False, **kwargs):
         self.emitter = emitter or EventEmitter()
+        self.auto_approve = auto_approve
 
-    def check(self, subtask: str, worker_output: str) -> tuple:
-        """Run the Reality Checker. Returns (approved: bool, feedback: str)."""
+    def check(self, subtask: str, worker_output: str, agent_type: str) -> tuple[bool, str]:
+        """
+        Show the user a preview and ask for verdict.
+        Returns (approved: bool, feedback: str).
+        """
         self.emitter.emit("qa.check_started", {"subtask": subtask[:80]})
 
-        checker_prompt = load_agent_prompt("reality-checker")
-        prompt = f"SUBTASK: {subtask}\n\nWORKER OUTPUT:\n{worker_output[:5000]}\n\nVerdict?"
+        # Auto-approve mode (for non-interactive runs like scheduler)
+        if self.auto_approve:
+            self.emitter.emit("qa.approved", {"verdict": "auto-approved"})
+            return True, ""
 
-        response = self.llm.call(checker_prompt, prompt, max_tokens=512)
-        verdict = response.text.strip()
+        # Show preview
+        print(f"\n  {CYAN}{'─' * 56}{RESET}")
+        print(f"  {BOLD}Review: {agent_type}{RESET} — {subtask[:80]}")
+        print(f"  {CYAN}{'─' * 56}{RESET}")
+        print()
+        for line in _preview(worker_output).splitlines():
+            print(f"    {line}")
+        print()
+        print(f"  {DIM}{len(worker_output):,} chars total{RESET}")
+        print(f"  {CYAN}{'─' * 56}{RESET}")
 
-        verdict_upper = verdict.upper()
-        approved = ("APPROVED" in verdict_upper
-                    and "NEEDS WORK" not in verdict_upper
-                    and "NOT APPROVED" not in verdict_upper
-                    and "PARTIAL APPROVAL" not in verdict_upper)
+        print(f"  {BOLD}[Enter]{RESET} approve  {BOLD}[f]{RESET} feedback & retry  {BOLD}[s]{RESET} skip")
+        try:
+            choice = input(f"  {BOLD}> {RESET}").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return True, ""
 
-        event_type = "qa.approved" if approved else "qa.rejected"
-        self.emitter.emit(event_type, {"verdict": verdict[:100]})
+        if choice in ("f", "feedback", "r", "retry"):
+            feedback = input(f"  {BOLD}What should change?{RESET}\n  > ").strip()
+            self.emitter.emit("qa.rejected", {"verdict": f"user feedback: {feedback[:100]}"})
+            return False, feedback
 
-        return approved, verdict
+        if choice in ("s", "skip"):
+            self.emitter.emit("qa.rejected", {"verdict": "user skipped"})
+            return False, "__skip__"
+
+        # Enter or anything else = approve
+        self.emitter.emit("qa.approved", {"verdict": "user approved"})
+        return True, ""
 
     def validate_with_retries(self, subtask: str, agent_type: str, station: Station) -> str:
-        """Delegate to a worker, validate, and retry up to MAX_RETRIES times."""
-        print(f"\n  \033[36m▶\033[0m \033[1m{agent_type}\033[0m — {subtask[:100]}")
+        """Run worker, show user the output, retry if they give feedback."""
+        print(f"\n  {CYAN}\u25b6{RESET} {BOLD}{agent_type}{RESET} — {subtask[:100]}")
         feedback = ""
 
         for attempt in range(1, MAX_RETRIES + 1):
             if attempt > 1:
-                print(f"    \033[33m↻\033[0m Retrying ({attempt}/{MAX_RETRIES})...")
-            print(f"    \033[2mWorking...\033[0m", end="", flush=True)
+                print(f"    {YELLOW}\u21bb{RESET} Retrying ({attempt}/{MAX_RETRIES})...")
+            print(f"    {DIM}Working...{RESET}", end="", flush=True)
             result = station.run(subtask, agent_type, attempt=attempt, prior_feedback=feedback)
-            print(f"\r    \033[32m✓\033[0m Done — {len(result):,} chars")
+            print(f"\r    {GREEN}\u2713{RESET} Done — {len(result):,} chars")
 
-            # Skip QA for very short or very long outputs
-            if len(result) < MIN_QA_LENGTH:
-                print(f"    \033[2m⏭ QA skipped (output too short)\033[0m")
-                return result
-            if len(result) >= AUTO_APPROVE_LENGTH:
-                print(f"    \033[32m✓\033[0m QA auto-approved (substantial output)")
-                return result
+            approved, feedback = self.check(subtask, result, agent_type)
 
-            print(f"    \033[2mQA checking...\033[0m", end="", flush=True)
-            approved, feedback = self.check(subtask, result)
             if approved:
-                print(f"\r    \033[32m✓\033[0m QA approved        ")
                 return result
 
-            print(f"\r    \033[33m✗\033[0m QA needs rework     ")
+            if feedback == "__skip__":
+                print(f"    {DIM}Skipped by user.{RESET}")
+                return f"[Skipped by user] {subtask}"
 
-        print(f"    \033[2mPassing best effort to manager.\033[0m")
+        print(f"    {DIM}Max retries reached. Passing best effort to manager.{RESET}")
         return result

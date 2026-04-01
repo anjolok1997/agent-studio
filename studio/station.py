@@ -3,6 +3,7 @@ Station — Worker agent execution.
 
 Each worker is a specialist agent that runs a focused subtask.
 Uses LLM.call() — no SDK-specific interfaces.
+When MCP tools are available, workers can call them during execution.
 """
 
 from .llm import LLM
@@ -84,20 +85,28 @@ class Station:
             "use your expertise to make reasonable decisions."
         )
 
-        response = self.llm.call(system, prompt, max_tokens=4096)
-        result = response.text
+        # Check for MCP tools (API provider gets a tool-calling loop)
+        mcp_tools = []
+        if self.mcp_bridge and self.llm.provider == "api":
+            mcp_tools = self.mcp_bridge.discover_tools()
 
-        # If the result looks like it needs research, do it
-        if len(result) < 200 and ("research" in result.lower() or "investigate" in result.lower()):
-            research = self._do_research(subtask, agent_type)
-            # Re-run with research context
-            prompt_with_research = (
-                f"{prompt}\n\n"
-                f"RESEARCH FINDINGS:\n{research[:3000]}\n\n"
-                f"Now produce your final deliverable based on these findings."
-            )
-            response = self.llm.call(system, prompt_with_research, max_tokens=4096)
+        if mcp_tools:
+            result = self._run_with_tools(system, prompt, mcp_tools, agent_type)
+        else:
+            # CLI provider handles MCP natively via --mcp-config
+            response = self.llm.call(system, prompt, max_tokens=4096)
             result = response.text
+
+            # If the result looks like it needs research, do it
+            if len(result) < 200 and ("research" in result.lower() or "investigate" in result.lower()):
+                research = self._do_research(subtask, agent_type)
+                prompt_with_research = (
+                    f"{prompt}\n\n"
+                    f"RESEARCH FINDINGS:\n{research[:3000]}\n\n"
+                    f"Now produce your final deliverable based on these findings."
+                )
+                response = self.llm.call(system, prompt_with_research, max_tokens=4096)
+                result = response.text
 
         # Check for draft artifacts in the output
         if len(result) > 500:
@@ -108,3 +117,48 @@ class Station:
 
         self.emitter.emit("worker.completed", {"agent": agent_type, "chars": len(result)})
         return result
+
+    def _run_with_tools(self, system: str, prompt: str, tools: list,
+                        agent_type: str, max_rounds: int = 5) -> str:
+        """Run a worker with MCP tool access via Anthropic API tool calling."""
+        messages = [{"role": "user", "content": prompt}]
+
+        for _ in range(max_rounds):
+            response = self.llm.call(
+                system, prompt, max_tokens=4096,
+                tools=tools, messages=messages,
+            )
+
+            if not response.tool_calls or response.stop_reason != "tool_use":
+                return response.text or "(no output)"
+
+            # Build assistant message with the model's response
+            assistant_content = []
+            if response.text:
+                assistant_content.append({"type": "text", "text": response.text})
+            for tc in response.tool_calls:
+                assistant_content.append({
+                    "type": "tool_use",
+                    "id": tc["id"],
+                    "name": tc["name"],
+                    "input": tc["input"],
+                })
+            messages.append({"role": "assistant", "content": assistant_content})
+
+            # Execute each tool call via MCPBridge
+            tool_results = []
+            for tc in response.tool_calls:
+                self.emitter.emit("worker.tool_called", {
+                    "agent": agent_type, "tool": tc["name"], "mcp": True,
+                })
+                result = self.mcp_bridge.call_tool(tc["name"], tc["input"], agent_type)
+                print(f"      [{agent_type}] mcp:{tc['name']} -> {len(result)} chars")
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tc["id"],
+                    "content": result,
+                })
+            messages.append({"role": "user", "content": tool_results})
+
+        # Hit max rounds — return whatever we have
+        return response.text or "(max tool rounds reached)"
