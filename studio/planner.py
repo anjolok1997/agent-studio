@@ -341,17 +341,56 @@ class Planner:
         if hasattr(response, "usage"):
             planning_tokens = response.usage.input_tokens + response.usage.output_tokens
 
-        # Parse subtasks
+        # Handle CLI client JSON-wrapped responses
+        if plan_text.startswith("{"):
+            try:
+                import json
+                parsed = json.loads(plan_text)
+                if isinstance(parsed.get("final_text"), str):
+                    plan_text = parsed["final_text"]
+                elif isinstance(parsed.get("result"), str):
+                    plan_text = parsed["result"]
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # Strip markdown code fences if present
+        if "```" in plan_text:
+            lines = plan_text.split("\n")
+            cleaned = []
+            in_fence = False
+            for line in lines:
+                if line.strip().startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                cleaned.append(line)
+            plan_text = "\n".join(cleaned)
+
+        # Parse subtasks — supports multiple formats:
+        #   SUBTASK: [agent-type] Description
+        #   1. [agent-type] Description
+        #   - [agent-type] Description
         subtasks = []
         for line in plan_text.split("\n"):
             line = line.strip()
-            if not line.upper().startswith("SUBTASK:"):
+
+            # Standard format
+            if line.upper().startswith("SUBTASK:"):
+                rest = line[len("SUBTASK:"):].strip()
+            # Numbered format: "1. [agent] ..." or "1) [agent] ..."
+            elif re.match(r"^\d+[.)]\s*\[", line):
+                rest = re.sub(r"^\d+[.)]\s*", "", line)
+            # Dash format: "- [agent] ..."
+            elif line.startswith("- [") or line.startswith("* ["):
+                rest = line[2:].strip()
+            else:
                 continue
-            rest = line[len("SUBTASK:"):].strip()
+
             match = re.match(r"\[([^\]]+)\]\s*(.*)", rest)
             if match:
                 agent_type = match.group(1).strip()
                 description = match.group(2).strip()
+                # Strip leading dash/colon from description
+                description = re.sub(r"^[-:]\s*", "", description)
                 if agent_type in allowed_agents:
                     subtasks.append({"agent_type": agent_type, "description": description})
 

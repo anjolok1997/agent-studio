@@ -258,6 +258,14 @@ Choosing the right specialist matters. Pick the best fit for each subtask."""
                     (b.text for b in response.content if hasattr(b, "text")),
                     "(no summary)"
                 )
+                # Clean up JSON-wrapped responses from CLI client
+                if summary.strip().startswith("{"):
+                    try:
+                        import json
+                        parsed = json.loads(summary)
+                        summary = parsed.get("final_text", summary)
+                    except (json.JSONDecodeError, KeyError):
+                        pass
                 self.emitter.emit("engine.completed", {"iterations": iteration + 1})
                 self.audit.log_run_complete(summary, self.spending.tokens_used)
                 log_file = self.audit.save()

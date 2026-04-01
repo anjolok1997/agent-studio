@@ -282,48 +282,53 @@ def cli_run_once(client, schedule_name: str = None):
         if not schedule_name and not _should_run(schedule):
             continue
 
-        print(f"\n{'='*60}")
-        print(f"{BOLD}Running:{RESET} {schedule.name}")
-        print(f"{BOLD}Task:{RESET} {schedule.goal[:100]}")
-        print(f"{'='*60}")
+        try:
+            print(f"\n{'='*60}")
+            print(f"{BOLD}Running:{RESET} {schedule.name}")
+            print(f"{BOLD}Task:{RESET} {schedule.goal[:100]}")
+            print(f"{'='*60}")
 
-        # Resolve agents
-        agents = schedule.agents
-        if not agents:
-            # Auto-suggest agents for the goal
-            from launch import suggest_agents
-            agents = suggest_agents(client, schedule.goal, loader)
-            agent_names = []
-            for aid in agents:
-                info = loader.get_agent(aid)
-                agent_names.append(info.name if info else aid)
-            print(f"  {GREEN}Auto-selected team:{RESET} {', '.join(agent_names)}")
+            # Resolve agents
+            agents = schedule.agents
+            if not agents:
+                # Auto-suggest agents for the goal
+                from launch import suggest_agents
+                agents = suggest_agents(client, schedule.goal, loader)
+                agent_names = []
+                for aid in agents:
+                    info = loader.get_agent(aid)
+                    agent_names.append(info.name if info else aid)
+                print(f"  {GREEN}Auto-selected team:{RESET} {', '.join(agent_names)}")
 
-        # Set up and run
-        manager_model = MODELS.get(schedule.manager_model, schedule.manager_model)
-        worker_model = MODELS.get(schedule.worker_model, schedule.worker_model)
-        mode = ExecutionMode.EXECUTE if schedule.execute else ExecutionMode.DRY_RUN
-        permissions = PermissionGuard(mode=mode, environment=schedule.env, oversight=OversightMode.CEO)
-        spending = SpendingGuard()
-        audit = AuditLog()
+            # Set up and run
+            manager_model = MODELS.get(schedule.manager_model, schedule.manager_model)
+            worker_model = MODELS.get(schedule.worker_model, schedule.worker_model)
+            mode = ExecutionMode.EXECUTE if schedule.execute else ExecutionMode.DRY_RUN
+            permissions = PermissionGuard(mode=mode, environment=schedule.env, oversight=OversightMode.CEO)
+            spending = SpendingGuard()
+            audit = AuditLog()
 
-        engine = Engine(
-            client=client,
-            manager_model=manager_model,
-            worker_model=worker_model,
-            permissions=permissions,
-            spending_guard=spending,
-            audit=audit,
-            oversight_mode=OversightMode.CEO,
-        )
+            engine = Engine(
+                client=client,
+                manager_model=manager_model,
+                worker_model=worker_model,
+                permissions=permissions,
+                spending_guard=spending,
+                audit=audit,
+                oversight_mode=OversightMode.CEO,
+            )
 
-        result = engine.run(schedule.goal, allowed_agents=agents)
+            result = engine.run(schedule.goal, allowed_agents=agents)
 
-        # Save result
-        run_path = save_run_result(schedule.name, result)
-        print(f"\n  {GREEN}Done.{RESET} Output saved to {run_path}")
+            # Save result
+            run_path = save_run_result(schedule.name, result)
+            print(f"\n  {GREEN}Done.{RESET} Output saved to {run_path}")
 
-        # Update last_run
+        except Exception as e:
+            print(f"\n  {RED}Error running '{schedule.name}': {e}{RESET}")
+            result = None
+
+        # Update last_run regardless of success/failure
         schedule.last_run = datetime.now().isoformat()
         save_schedule(schedule)
         ran += 1
