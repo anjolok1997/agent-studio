@@ -20,7 +20,9 @@ Run:
 
 import argparse
 import os
+import platform
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -654,6 +656,20 @@ def main():
             filepath = output_dir / filename
             filepath.write_text(content)
             print(f"\n  {GREEN}[{i}]{RESET} {BOLD}{filepath}{RESET} ({len(content):,} chars from {a['agent']})")
+
+            # Auto-open HTML files in the browser
+            if ext == "html":
+                try:
+                    abs_path = filepath.resolve()
+                    if platform.system() == "Darwin":
+                        subprocess.run(["open", str(abs_path)], check=False)
+                    elif platform.system() == "Linux":
+                        subprocess.run(["xdg-open", str(abs_path)], check=False)
+                    elif platform.system() == "Windows":
+                        os.startfile(str(abs_path))
+                    print(f"  {DIM}Opened in browser{RESET}")
+                except Exception:
+                    pass
 
         print(f"\n  {DIM}All artifacts saved to {output_dir}/{RESET}")
 
