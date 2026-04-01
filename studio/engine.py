@@ -241,6 +241,11 @@ Choosing the right specialist matters. Pick the best fit for each subtask."""
         for iteration in range(12):
             self.emitter.emit("engine.iteration", {"iteration": iteration + 1})
 
+            if iteration == 0:
+                print(f"{DIM}Manager is breaking down your task...{RESET}", end="", flush=True)
+            else:
+                print(f"{DIM}Manager is synthesizing results...{RESET}", end="", flush=True)
+
             response = self.client.messages.create(
                 model=self.manager_model,
                 max_tokens=2048,
@@ -249,6 +254,7 @@ Choosing the right specialist matters. Pick the best fit for each subtask."""
                 messages=messages,
             )
             messages.append({"role": "assistant", "content": response.content})
+            print(f"\r{' ' * 50}\r", end="")  # Clear the "working" line
 
             if not self._check_spending(response):
                 break
@@ -280,7 +286,17 @@ Choosing the right specialist matters. Pick the best fit for each subtask."""
             tool_results = []
             for block in response.content:
                 if hasattr(block, "text") and block.text:
-                    print(f"[Manager]: {block.text}")
+                    # Clean JSON from CLI client
+                    text = block.text
+                    if text.strip().startswith("{"):
+                        try:
+                            import json
+                            parsed = json.loads(text)
+                            text = parsed.get("reasoning", text)
+                        except (json.JSONDecodeError, KeyError):
+                            pass
+                    if text.strip():
+                        print(f"\n{DIM}[Manager]: {text[:200]}{RESET}")
                 if block.type != "tool_use":
                     continue
 

@@ -179,7 +179,6 @@ class Station:
                 if block.type != "tool_use":
                     continue
                 result = self._run_tool(block.name, block.input, agent_type)
-                print(f"      [{agent_type}] {block.name} -> {result[:70]}")
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,

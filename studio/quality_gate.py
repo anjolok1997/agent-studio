@@ -51,19 +51,23 @@ class QualityGate:
 
     def validate_with_retries(self, subtask: str, agent_type: str, station: Station) -> str:
         """Delegate to a worker, validate, and retry up to MAX_RETRIES times."""
-        print(f"\n  [Manager] -> {agent_type}: {subtask!r}")
+        print(f"\n  \033[36m▶\033[0m \033[1m{agent_type}\033[0m — {subtask[:100]}")
         feedback = ""
 
         for attempt in range(1, MAX_RETRIES + 1):
+            if attempt > 1:
+                print(f"    \033[33m↻\033[0m Retrying ({attempt}/{MAX_RETRIES})...")
+            print(f"    \033[2mWorking...\033[0m", end="", flush=True)
             result = station.run(subtask, agent_type, attempt=attempt, prior_feedback=feedback)
-            print(f"    [{agent_type}] Output ({len(result)} chars): {result[:80]}...")
+            print(f"\r    \033[32m✓\033[0m Done — {len(result):,} chars")
 
+            print(f"    \033[2mQA checking...\033[0m", end="", flush=True)
             approved, feedback = self.check(subtask, result)
             if approved:
-                print(f"    [QA] APPROVED on attempt {attempt}")
+                print(f"\r    \033[32m✓\033[0m QA approved        ")
                 return result
 
-            print(f"    [QA] Rejected (attempt {attempt}/{MAX_RETRIES}). Retrying...")
+            print(f"\r    \033[33m✗\033[0m QA needs rework     ")
 
         print(f"    [QA] Failed after {MAX_RETRIES} attempts. Passing best effort to manager.")
         return f"[Not fully approved after {MAX_RETRIES} attempts] {result}"
