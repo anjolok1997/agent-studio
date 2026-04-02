@@ -363,6 +363,9 @@ class Engine:
         Run the manager agent on a goal.
         Returns {"summary": str, "artifacts": list[dict], "audit_log": str}.
         """
+        import time
+        run_start = time.time()
+
         agents = allowed_agents or list_available_agents()
 
         self.audit.log_run_start(goal, agents, self.permissions.mode.value)
@@ -557,7 +560,12 @@ RULES:
         log_file = self.audit.save()
 
         ok, spend_msg = self.spending.check()
-        print(f"\n{GREEN}Done.{RESET} {DIM}{spend_msg} | Audit: {log_file}{RESET}\n")
+        total_time = time.time() - run_start
+        if total_time >= 60:
+            time_str = f"{int(total_time // 60)}m {int(total_time % 60)}s"
+        else:
+            time_str = f"{int(total_time)}s"
+        print(f"\n{GREEN}Done.{RESET} {DIM}{len(completed)} subtasks in {time_str} | {spend_msg} | Audit: {log_file}{RESET}\n")
 
         return {
             "summary": summary,

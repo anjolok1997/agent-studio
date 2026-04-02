@@ -78,13 +78,7 @@ def load_templates() -> list[dict]:
 
 
 def print_banner(oversight_label: str):
-    print(f"""
-{BOLD}{CYAN}╔══════════════════════════════════════════════════════╗
-║               AGENT STUDIO                           ║
-║        Describe it. A team of AI gets it done.       ║
-╚══════════════════════════════════════════════════════╝{RESET}
-  {oversight_label}
-""")
+    print(f"\n  {BOLD}Agent Studio{RESET} {DIM}— {oversight_label}{RESET}\n")
 
 
 def print_menu(templates: list[dict]):
@@ -196,23 +190,9 @@ def pick_models_interactive(args) -> tuple:
     if args.manager_model != "sonnet" or args.worker_model != "haiku":
         return select_models(args)
 
-    print(f"\n{BOLD}Pick your speed:{RESET}\n")
-    print(f"  {CYAN}1.{RESET} {BOLD}Fast{RESET}        — Haiku workers, Sonnet manager")
-    print(f"     {DIM}Cheapest and fastest. Great for simple tasks.{RESET}")
-    print(f"  {CYAN}2.{RESET} {BOLD}Balanced{RESET}    — Haiku workers, Sonnet manager  {GREEN}(default){RESET}")
-    print(f"     {DIM}Good mix of speed and quality.{RESET}")
-    print(f"  {CYAN}3.{RESET} {BOLD}Powerful{RESET}    — Sonnet workers, Opus manager")
-    print(f"     {DIM}Best quality. Slower and costs more.{RESET}")
-    print()
-
-    choice = input(f"{BOLD}Select [1-3]{RESET} (Enter for default): ").strip()
-
-    if choice == "1":
-        return MODELS["haiku"], MODELS["haiku"]
-    elif choice == "3":
-        return MODELS["opus"], MODELS["sonnet"]
-    else:
-        return MODELS["sonnet"], MODELS["haiku"]
+    # Default to balanced — skip the menu for a cleaner experience
+    # Users can override with --worker-model and --manager-model flags
+    return MODELS["sonnet"], MODELS["haiku"]
 
 
 # ─── Material Collection ─────────────────────────────────────────────────────
@@ -578,9 +558,7 @@ def main():
     if _is_one_shot(args):
         user_input = args.command
     else:
-        print(f"{BOLD}What do you want to do?{RESET}")
-        print(f"{DIM}Type 'templates' for pre-built projects, or 'pick' to choose agents manually.{RESET}\n")
-        user_input = input(f"{BOLD}> {RESET}").strip()
+        user_input = input(f"  {BOLD}What do you need?{RESET} > ").strip()
 
     template = None
     task_complexity = "medium"  # default, overridden by suggest_agents

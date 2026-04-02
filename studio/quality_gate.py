@@ -8,6 +8,8 @@ feedback, or edit directly.
 
 from __future__ import annotations
 
+import time
+
 from .events import EventEmitter
 from .station import Station
 
@@ -97,8 +99,10 @@ class QualityGate:
             if attempt > 1:
                 print(f"    {YELLOW}\u21bb{RESET} Retrying ({attempt}/{MAX_RETRIES})...")
             print(f"    {DIM}Working...{RESET}", end="", flush=True)
+            t0 = time.time()
             result = station.run(subtask, agent_type, attempt=attempt, prior_feedback=feedback)
-            print(f"\r    {GREEN}\u2713{RESET} Done — {len(result):,} chars")
+            elapsed = time.time() - t0
+            print(f"\r    {GREEN}\u2713{RESET} Done — {len(result):,} chars ({elapsed:.0f}s)")
 
             approved, feedback = self.check(subtask, result, agent_type)
 

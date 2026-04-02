@@ -319,7 +319,23 @@ def cli_run_once(llm, schedule_name: str = None):
                 provider=llm.provider,
             )
 
-            result = engine.run(schedule.goal, allowed_agents=agents)
+            # Load last run's summary for context (scheduler memory)
+            goal_with_context = schedule.goal
+            past_runs = list_recent_runs(schedule.name, limit=1)
+            if past_runs:
+                last_run = past_runs[0]
+                last_date = last_run.get("timestamp", "unknown")[:10]
+                last_summary = last_run.get("summary", "")
+                if last_summary:
+                    goal_with_context = (
+                        f"{schedule.goal}\n\n"
+                        f"CONTEXT FROM LAST RUN ({last_date}):\n"
+                        f"{last_summary[:3000]}\n\n"
+                        f"Build on the previous results. Focus on what's new or changed."
+                    )
+                    print(f"  {DIM}Loaded context from last run ({last_date}){RESET}")
+
+            result = engine.run(goal_with_context, allowed_agents=agents)
 
             # Save result
             run_path = save_run_result(schedule.name, result)
