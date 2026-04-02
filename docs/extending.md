@@ -95,53 +95,78 @@ Materials are inputs the user provides before the run. They're prepended to the 
 
 ## Connect Real Tools via MCP
 
-The [Model Context Protocol](https://modelcontextprotocol.io/) connects agent tool calls to real external systems.
+The [Model Context Protocol](https://modelcontextprotocol.io/) connects agent tool calls to real external systems. Workers can query databases, read GitHub PRs, search Slack — grounded in real data instead of hallucinating.
 
-### Setup
-
-1. Copy and edit the example config:
+### Interactive setup (recommended)
 
 ```bash
-cp mcp_config.example.yaml mcp_config.yaml
+studio mcp add       # Pick from curated, version-pinned servers
+studio mcp list      # Show configured servers
+studio mcp remove    # Remove a server
 ```
 
-2. Configure your servers:
+If Docker is installed, servers automatically run in a sandboxed container. See [Security](#supply-chain-security) below.
 
-```yaml
-servers:
-  - name: filesystem
-    transport: stdio
-    command: npx
-    args: ["@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+### Manual setup
 
-  - name: database
-    transport: stdio
-    command: npx
-    args: ["@modelcontextprotocol/server-postgres", "postgresql://..."]
-    risk_overrides:
-      read_query: safe
-      write_query: dangerous
-```
-
-3. Launch with MCP:
+Copy an example config and edit:
 
 ```bash
-python3 launch.py --mcp-config mcp_config.yaml --execute
+cp examples/mcp/github.yaml mcp_config.yaml
+# Edit tokens in the file
+studio --execute --env dev
 ```
 
 ### How it works
 
 1. On startup, the MCP bridge connects to each server and discovers available tools
-2. Tools are registered with the PermissionGuard (risk inferred from tool name or set via `risk_overrides`)
-3. Workers see MCP tools alongside built-in tools
-4. When a worker calls an MCP tool, the bridge routes the call to the real server
-5. If no MCP is configured, everything falls back to simulated tool responses
+2. If `sandbox: docker` is set, the server runs in an isolated Docker container
+3. Tools are registered with the PermissionGuard (risk inferred from tool name or set via `tool_risks`)
+4. Workers call MCP tools during subtask execution:
+   - **API provider**: native Anthropic tool-calling loop in Station
+   - **CLI provider**: passes `--mcp-config` to Claude CLI
+5. If no MCP is configured, workers rely on the model's knowledge only
+
+### Available servers
+
+| Server | Package | Pinned Version |
+|---|---|---|
+| GitHub | `@modelcontextprotocol/server-github` | `2025.4.8` |
+| Filesystem | `@modelcontextprotocol/server-filesystem` | `2026.1.14` |
+| PostgreSQL | `@modelcontextprotocol/server-postgres` | `0.6.2` |
+| Slack | `@modelcontextprotocol/server-slack` | `2025.4.25` |
+| Puppeteer | `@modelcontextprotocol/server-puppeteer` | `2025.5.12` |
+| Redis | `@modelcontextprotocol/server-redis` | `2025.4.25` |
+
+### Custom servers
+
+Custom (unverified) servers are blocked by default for security. To add one:
+
+```bash
+studio mcp add --allow-custom
+```
+
+You'll see a security warning and must acknowledge the risks. Always pin to an exact version.
+
+### Supply chain security
+
+All curated servers are protected against supply chain attacks:
+
+| Protection | What it prevents |
+|---|---|
+| **Pinned versions** | Compromised `@latest` tags |
+| **Docker sandbox** | Malware accessing your filesystem/network |
+| **`--ignore-scripts`** | npm postinstall attacks (like the axios RAT) |
+| **`--cap-drop=ALL`** | Linux privilege escalation |
+| **`--read-only` FS** | Writing to the host system |
+| **`--network=none`** | Data exfiltration (for servers that don't need internet) |
+| **Curated allowlist** | Typosquatting / fake packages |
 
 ### Supported transports
 
 | Transport | Description |
 |---|---|
-| `stdio` | Spawns a subprocess (most common) |
+| `stdio` | Spawns a subprocess or Docker container (most common) |
 | `sse` | Connects to an HTTP server (planned) |
 
 ---
@@ -194,24 +219,22 @@ No visualizer connected? All `emit()` calls are silently ignored — zero overhe
 Use Agent Studio as a library in your own code:
 
 ```python
-from anthropic import Anthropic
-from studio import Engine, PermissionGuard, SpendingGuard, AuditLog, AgentLoader
+from studio import Engine, PermissionGuard, SpendingGuard, AuditLog
 from studio.permissions import ExecutionMode, OversightMode
 
-client = Anthropic()
 permissions = PermissionGuard(
     mode=ExecutionMode.DRY_RUN,
     oversight=OversightMode.CEO,
 )
 
 engine = Engine(
-    client=client,
     manager_model="claude-sonnet-4-6",
     worker_model="claude-haiku-4-5-20251001",
     permissions=permissions,
     spending_guard=SpendingGuard(max_tokens=50_000),
     audit=AuditLog(),
     oversight_mode=OversightMode.CEO,
+    provider="cli",  # or "api" with ANTHROPIC_API_KEY set
 )
 
 result = engine.run(
