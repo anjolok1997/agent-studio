@@ -324,8 +324,23 @@ RULES:
             })
             self.audit.log_delegation(subtask, agent_type)
 
+            # Give the worker context from prior results so it can build on them
+            worker_prompt = subtask
+            if completed:
+                context_parts = []
+                for prev_agent, prev_task, prev_result in completed:
+                    context_parts.append(
+                        f"--- Output from {prev_agent} ({prev_task[:80]}) ---\n"
+                        f"{prev_result[:4000]}"
+                    )
+                worker_prompt = (
+                    f"{subtask}\n\n"
+                    f"CONTEXT FROM PREVIOUS WORK:\n"
+                    f"{''.join(context_parts)}"
+                )
+
             result = self.quality_gate.validate_with_retries(
-                subtask=subtask,
+                subtask=worker_prompt,
                 agent_type=agent_type,
                 station=self.station,
             )

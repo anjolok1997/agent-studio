@@ -61,26 +61,83 @@ def _format_manager_message(text: str) -> str:
 class Briefing:
     """Multi-turn briefing conversation with the manager agent."""
 
-    def __init__(self, llm: LLM, agents: list[str], goal: str):
+    def __init__(self, llm: LLM, agents: list[str], goal: str,
+                 complexity: str = "medium",
+                 connected_mcps: list[str] = None, available_mcps: dict = None):
         self.llm = llm
         self.agents = agents
         self.goal = goal
+        self.complexity = complexity
+        self.connected_mcps = connected_mcps or []
+        self.available_mcps = available_mcps or {}
         self.tokens_used = 0
 
     def _build_system(self) -> str:
         """Load the briefing-manager agent and add context."""
         base = load_agent_prompt("briefing-manager")
         agent_list = ", ".join(self.agents)
-        return (
+
+        complexity_hints = {
+            "simple": (
+                "This was assessed as a SIMPLE task. Keep your briefing SHORT — "
+                "2-3 sentences max, no questions unless something is genuinely unclear. "
+                "Just state what you'll do and tell the user to type 'go'. "
+                "Do NOT over-complicate it."
+            ),
+            "medium": (
+                "This was assessed as a MEDIUM task. Keep your briefing concise — "
+                "quick take on the approach, ask at most one question if needed."
+            ),
+            "complex": (
+                f"This was assessed as a COMPLEX task ({len(self.agents)} specialists). "
+                "Take time to align on approach — propose a sequence, ask about priorities."
+            ),
+        }
+        complexity_hint = complexity_hints.get(self.complexity, complexity_hints["medium"])
+
+        system = (
             f"{base}\n\n"
+            f"## Task Complexity\n"
+            f"{complexity_hint}\n\n"
             f"## Available Specialists\n"
             f"{agent_list}\n\n"
+        )
+
+        # Tell the manager what tools are connected
+        if self.connected_mcps:
+            mcp_list = ", ".join(self.connected_mcps)
+            system += (
+                f"## Connected Tools\n"
+                f"Your team currently has access to: {mcp_list}\n"
+                f"Workers can use these tools during execution.\n\n"
+            )
+
+        # Tell the manager what tools COULD be connected
+        not_connected = {k: v for k, v in self.available_mcps.items()
+                         if k not in self.connected_mcps}
+        if not_connected:
+            tool_lines = "\n".join(
+                f"- **{v['name']}**: {v['description']} → `studio mcp add`"
+                for k, v in not_connected.items()
+            )
+            system += (
+                f"## Tools Available (not yet connected)\n"
+                f"These can be connected in 30 seconds if the task needs them:\n"
+                f"{tool_lines}\n\n"
+                f"If the user's goal would benefit from one of these tools, suggest it naturally.\n"
+                f"Example: \"This would work better with filesystem access. "
+                f"Type /mcp right here to connect it — takes 30 seconds.\"\n"
+                f"Don't push — just mention it once if relevant.\n\n"
+            )
+
+        system += (
             f"## Rules for This Conversation\n"
             f"- Open with your take on the goal and a proposed approach.\n"
             f"- Name specific specialists and what each would deliver.\n"
             f"- Keep responses to 2-4 short paragraphs. No walls of text.\n"
             f"- When you and the user are aligned, tell them to type 'go'.\n"
         )
+        return system
 
     def run(self) -> BriefingResult:
         """Run the briefing conversation. Returns when user says go or quit."""
@@ -101,7 +158,7 @@ class Briefing:
             if turn == MAX_TURNS:
                 print(f"\n  {YELLOW}Briefing is getting long — type 'go' to start or 'quit' to abort.{RESET}")
 
-            print(f"\n  {DIM}(type 'go' to execute, 'quit' to abort){RESET}")
+            print(f"\n  {DIM}('go' to execute, 'quit' to abort, '/mcp' to connect a tool){RESET}")
             try:
                 user_input = input(f"  {BOLD}You > {RESET}").strip()
             except (EOFError, KeyboardInterrupt):
@@ -112,6 +169,26 @@ class Briefing:
                 )
 
             if not user_input:
+                continue
+
+            # /mcp — inline MCP setup, then resume conversation
+            if user_input.lower() in ("/mcp", "/mcp add"):
+                newly_connected = self._handle_mcp_setup()
+                if newly_connected:
+                    # Rebuild system prompt with new tools
+                    system = self._build_system()
+                    conversation.append(
+                        f"[System]: Tools updated. Now connected: {', '.join(self.connected_mcps)}"
+                    )
+                    print(f"\n  {GREEN}Tools updated. Resuming conversation...{RESET}\n")
+
+                    # Let the manager acknowledge the new tool
+                    prompt = "\n\n".join(conversation)
+                    response = self.llm.call(system, prompt, max_tokens=1024)
+                    self.tokens_used += response.input_tokens + response.output_tokens
+                    manager_reply = response.text.strip()
+                    conversation.append(f"[Manager]: {manager_reply}")
+                    print(_format_manager_message(manager_reply))
                 continue
 
             if GO_SIGNALS.match(user_input):
@@ -146,6 +223,20 @@ class Briefing:
             context=self._format_context(conversation),
             approved=True, turns=MAX_TURNS, tokens_used=self.tokens_used,
         )
+
+    def _handle_mcp_setup(self) -> bool:
+        """Run inline MCP setup. Returns True if a new server was connected."""
+        from .mcp_cli import cli_mcp_add, _load_config, DEFAULT_CONFIG_PATH
+
+        before = set(_load_config().get("servers", {}).keys())
+        cli_mcp_add()
+        after = set(_load_config().get("servers", {}).keys())
+
+        newly_added = after - before
+        if newly_added:
+            self.connected_mcps.extend(newly_added)
+            return True
+        return False
 
     def _format_context(self, conversation: list[str]) -> str:
         """Format the briefing transcript for the engine's manager."""
