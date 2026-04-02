@@ -122,8 +122,11 @@ def print_model_menu():
     print(f"  {DIM}Set with --manager-model and --worker-model{RESET}\n")
 
 
-def suggest_agents(llm: LLM, goal: str, loader: AgentLoader) -> list[str]:
-    """Use a quick LLM call to suggest the best agents for a goal."""
+def suggest_agents(llm: LLM, goal: str, loader: AgentLoader) -> tuple[list[str], str]:
+    """Assess task complexity and suggest the right team.
+
+    Returns (agent_ids, complexity) where complexity is 'simple', 'medium', or 'complex'.
+    """
     all_agents = loader.list_agents()
 
     # Build a compact agent catalog for the prompt
@@ -133,33 +136,58 @@ def suggest_agents(llm: LLM, goal: str, loader: AgentLoader) -> list[str]:
         catalog.append(f"- {agent_id}: {desc}")
     catalog_text = "\n".join(catalog)
 
-    prompt = f"""Given this goal, pick 2-4 agents that would make the best team.
+    prompt = f"""Assess this goal's complexity, then pick the right team.
 
 GOAL: {goal}
 
 AVAILABLE AGENTS:
 {catalog_text}
 
-Respond with ONLY the agent IDs, one per line. Pick 2-4 agents. Nothing else."""
+STEP 1 — Rate complexity on the first line:
+- SIMPLE: single clear task, one specialist enough (organize files, summarize a doc, quick question)
+- MEDIUM: needs 2 perspectives or steps (code review, research a topic, write + review)
+- COMPLEX: multi-step project, real design decisions (build a system, pipeline, multi-part deliverable)
+
+STEP 2 — Pick agents (one per line after the complexity rating):
+- SIMPLE: exactly 1 agent
+- MEDIUM: exactly 2 agents
+- COMPLEX: 3-4 agents
+- Prefer generalists (researcher, analyst, writer) for simple tasks
+
+RESPOND IN THIS EXACT FORMAT:
+COMPLEXITY: simple
+agent-id-here"""
 
     response = llm.call(
-        "You are a team builder. Pick the best specialist agents for the goal. Respond with only agent IDs, one per line.",
+        "You are a team builder. First assess complexity, then pick agents. Be honest — most tasks are simple.",
         prompt,
         max_tokens=256,
     )
 
-    result_text = response.text
+    result_text = response.text.strip()
+
+    # Parse complexity
+    complexity = "medium"  # default
+    for line in result_text.splitlines():
+        line_lower = line.strip().lower()
+        if line_lower.startswith("complexity:"):
+            value = line_lower.split(":", 1)[1].strip()
+            if value in ("simple", "medium", "complex"):
+                complexity = value
+            break
+
+    # Parse agent IDs
     suggested = []
-    for line in result_text.strip().splitlines():
+    for line in result_text.splitlines():
         agent_id = line.strip().lstrip("- ").strip()
         if agent_id in all_agents:
             suggested.append(agent_id)
 
-    # Fallback if parsing failed
+    # Fallback
     if not suggested:
-        suggested = ["researcher", "analyst", "writer"]
+        suggested = ["researcher"]
 
-    return suggested
+    return suggested, complexity
 
 
 def pick_models_interactive(args) -> tuple:
@@ -540,6 +568,7 @@ def main():
         user_input = input(f"{BOLD}> {RESET}").strip()
 
     template = None
+    task_complexity = "medium"  # default, overridden by suggest_agents
 
     if user_input.lower() in ("templates", "template", "t"):
         # ── Template flow ──
@@ -577,7 +606,7 @@ def main():
             sys.exit(1)
 
         print(f"\n{DIM}Assembling team...{RESET}")
-        agents = suggest_agents(suggest_llm, goal, loader)
+        agents, task_complexity = suggest_agents(suggest_llm, goal, loader)
 
         # Show the team briefly (no approval needed — just info)
         agent_names = []
@@ -585,7 +614,7 @@ def main():
             info = loader.get_agent(agent_id)
             name = info.name if info else agent_id
             agent_names.append(name)
-        print(f"  {GREEN}Team:{RESET} {', '.join(agent_names)}\n")
+        print(f"  {GREEN}Team:{RESET} {', '.join(agent_names)} {DIM}({task_complexity}){RESET}\n")
 
     # Collect materials if using a template
     materials_text = ""
@@ -614,9 +643,18 @@ def main():
     elif not args.no_plan:
         # Default: Interactive manager briefing
         from studio.briefing import Briefing
+        from studio.mcp_cli import MCP_CATALOG
+
+        connected_mcps = mcp_bridge.connected_servers if mcp_bridge else []
+        available_mcps = {k: {"name": v["name"], "description": v["description"]}
+                          for k, v in MCP_CATALOG.items()}
 
         manager_llm = LLM(provider=provider, model=manager_model)
-        briefing = Briefing(llm=manager_llm, agents=agents, goal=goal)
+        briefing = Briefing(
+            llm=manager_llm, agents=agents, goal=goal,
+            complexity=task_complexity,
+            connected_mcps=connected_mcps, available_mcps=available_mcps,
+        )
         briefing_result = briefing.run()
         spending.track(briefing_result.tokens_used, 0)
 
@@ -722,7 +760,7 @@ def main():
 
         # Auto-suggest agents for the follow-up
         print(f"\n{DIM}Assembling team...{RESET}")
-        followup_agents = suggest_agents(suggest_llm, followup, loader)
+        followup_agents, _ = suggest_agents(suggest_llm, followup, loader)
         agent_names = []
         for agent_id in followup_agents:
             info = loader.get_agent(agent_id)

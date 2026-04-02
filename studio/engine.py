@@ -150,6 +150,22 @@ class Engine:
         )
         self.quality_gate = QualityGate(emitter=self.emitter)
 
+    def _build_worker_prompt(self, subtask: str, completed: list[tuple]) -> str:
+        """Add prior results as context so workers can build on each other."""
+        if not completed:
+            return subtask
+        context_parts = []
+        for prev_agent, prev_task, prev_result in completed:
+            context_parts.append(
+                f"--- Output from {prev_agent} ({prev_task[:80]}) ---\n"
+                f"{prev_result[:4000]}"
+            )
+        return (
+            f"{subtask}\n\n"
+            f"CONTEXT FROM PREVIOUS WORK:\n"
+            f"{''.join(context_parts)}"
+        )
+
     def _run_single(self, delegation: dict, agents: list[str],
                     conversation: list[str], completed: list[tuple]) -> str | None:
         """Execute a single sequential delegation. Returns result or None if stopped."""
@@ -169,8 +185,11 @@ class Engine:
         })
         self.audit.log_delegation(subtask, agent_type)
 
+        # Give the worker context from prior results
+        worker_prompt = self._build_worker_prompt(subtask, completed)
+
         result = self.quality_gate.validate_with_retries(
-            subtask=subtask, agent_type=agent_type, station=self.station,
+            subtask=worker_prompt, agent_type=agent_type, station=self.station,
         )
 
         completed.append((agent_type, subtask, result))
