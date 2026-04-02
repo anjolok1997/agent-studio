@@ -113,14 +113,14 @@ Every run creates a JSON log in `logs/` with:
 
 | Control | CEO Mode | Supervised Mode |
 |---|---|---|
-| Execution plan review | Before run (optional) | Before run (optional) |
+| Manager briefing | Before run (interactive) | Before run (interactive) |
 | Delegation approval | Automatic | Per-subtask |
-| Post-subtask review | None | Checkpoint (continue/stop/redirect) |
+| Post-subtask review | User spot-check (approve/feedback/skip) | User spot-check + checkpoint |
 | Dangerous tool calls | CEO escalation | Approval prompt |
 | Production actions | CEO escalation | Approval prompt |
 | Spending alerts | Escalation at 80% | No alert (hard cap only) |
 | Worker blockers | CEO escalation | Visible at checkpoint |
-| Quality validation | Automatic (QA agent) | Automatic (QA agent) |
+| MCP server isolation | Docker sandbox (when available) | Docker sandbox (when available) |
 | Audit trail | Always | Always |
 
 ---

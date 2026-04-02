@@ -36,35 +36,50 @@ No API key needed.
 ## How It Works
 
 ```
-> Summarize this 50-page PDF and pull out the action items
+> Design a data pipeline from Postgres to Snowflake
 
-Assembling team...
-  Team: Summarizer, Researcher, Analyst
+Manager is reviewing your goal...
 
-Planning...
-  1. [summarizer] Extract key points from each section
-  2. [researcher] Cross-reference claims and flag gaps
-  3. [analyst] Compile action items with priorities
+┌─ Manager ──────────────────────────────────────────────┐
+│ Good goal. Here's my take: I'd start with the data     │
+│ engineer on schema mapping, then the backend architect  │
+│ on the ETL design. Both can run in parallel since       │
+│ they're independent. Then the PM sequences it all.      │
+│                                                        │
+│ Is this a one-time migration or ongoing sync?           │
+└────────────────────────────────────────────────────────┘
 
-Proceed? [Y/n]: y
+You > ongoing, just the orders and customers tables
 
-  ... agents working ...
+┌─ Manager ──────────────────────────────────────────────┐
+│ Got it. I'll narrow the scope. Say 'go' when ready.    │
+└────────────────────────────────────────────────────────┘
 
-Done. 3 artifacts produced.
+You > go
+
+  Running 2 tasks in parallel...
+  ▶ data-engineer — Design schema mapping for orders + customers
+  ▶ backend-architect — Design incremental ETL pipeline
+  All 2 parallel tasks complete.
+
+  ▶ project-manager — Sequence deployment plan from both outputs
+
+Done.
 ```
 
 Just describe what you need. Agent Studio:
-1. Picks the right specialists from 159 available agents
-2. Shows you the plan before any work starts
-3. Runs the team autonomously
-4. Delivers a summary + artifacts
+1. **Briefs you first** — a manager agent discusses the approach with you before work begins
+2. Picks the right specialists from 159 available agents
+3. **Runs workers in parallel** when tasks are independent
+4. You **spot-check each output** before the manager continues
+5. Delivers a summary + artifacts
 
 ### What can you use it for?
 
 | Task | What happens |
 |---|---|
 | "Summarize this doc and list action items" | Summarizer extracts key points, analyst compiles actions |
-| "Design a data pipeline from Postgres to Snowflake" | Data engineer + backend architect + PM collaborate |
+| "Design a data pipeline from Postgres to Snowflake" | Data engineer + backend architect collaborate in parallel |
 | "Review this code for security issues" | Code reviewer + security engineer audit together |
 | "Research competitors and compare pricing" | Researcher + analyst produce a comparison table |
 | "Create a study guide for distributed systems" | Educator + researcher build structured materials |
@@ -123,30 +138,76 @@ Choose at launch, or set via CLI flags:
 
 ---
 
-## Built-in Safety
+## Connect Real Tools (MCP)
 
-Agent Studio is designed to be safe by default. You don't need to configure anything — protections are always on.
+Agent Studio connects to real systems via the [Model Context Protocol](https://modelcontextprotocol.io/). Workers can query databases, read GitHub PRs, search Slack — not just generate text.
+
+### Interactive setup
+
+```bash
+studio mcp add       # Pick a server from the curated list
+studio mcp list      # Show configured servers
+studio mcp remove    # Remove a server
+```
+
+### Available servers (curated, version-pinned)
+
+| Server | What agents can do |
+|---|---|
+| **GitHub** | Read repos, review PRs, search code, manage issues |
+| **Filesystem** | Read/write local files, search directory contents |
+| **PostgreSQL** | Query and inspect your database |
+| **Slack** | Search messages, read channels, send updates |
+| **Puppeteer** | Browse web pages, fill forms, extract data |
+| **Redis** | Inspect keys and data |
+
+All packages are pinned to exact audited versions. See [Security](#security) for details.
+
+Ready-to-use example configs in [`examples/mcp/`](examples/mcp/).
+
+---
+
+## Security
+
+Agent Studio takes supply chain security seriously. MCP servers are third-party npm packages that run with your permissions — we treat them as untrusted code.
+
+### Protections
+
+| Layer | What it does |
+|---|---|
+| **Curated allowlist** | Only 6 verified servers from `@modelcontextprotocol` (official publisher) |
+| **Pinned versions** | Every package locked to an exact version — no `@latest` |
+| **Docker sandbox** | When Docker is installed, MCP servers run in isolated containers |
+| **`--ignore-scripts`** | npm postinstall scripts disabled (prevents malware like the axios attack) |
+| **`--cap-drop=ALL`** | Containers drop all Linux capabilities |
+| **`--read-only`** | Container filesystem is read-only |
+| **`--network=none`** | Servers that don't need internet (filesystem) get no network access |
+| **Custom servers blocked** | `--allow-custom` flag required to add unverified packages |
+| **Tool risk classification** | Dangerous operations (delete, deploy, execute) require approval |
+| **Spending limits** | Hard cap prevents runaway token usage |
+| **Full audit trail** | Every decision logged to `logs/` |
+
+### Without Docker
+
+If Docker isn't installed, MCP servers run directly via `npx` with pinned versions. You'll see a warning recommending Docker. Install Docker for full protection: https://docs.docker.com/get-docker/
+
+---
+
+## Built-in Safety
 
 | What | How |
 |---|---|
-| **Plan before action** | You see the full plan and approve before any work starts |
-| **Tools are sandboxed** | Dangerous operations (SQL, deploy, shell) are blocked unless you explicitly enable them |
+| **Briefing before action** | Manager discusses approach with you before agents start working |
+| **User spot-check** | You review each worker's output before it's accepted (approve / feedback / skip) |
+| **Tools are sandboxed** | Dangerous operations blocked unless you explicitly enable them |
 | **Spending limits** | Hard cap prevents runaway token usage |
-| **Quality checks** | A QA agent validates every output before it's finalized |
-| **Full audit trail** | Every decision logged to `logs/` — who did what, when, why |
-| **You approve what matters** | Agents only ask you for sign-off on critical actions (production, dangerous tools) |
-
-### Connecting to real systems
-
-By default, tools are simulated — nothing leaves the sandbox. Ready-to-use configs are in [`examples/mcp/`](examples/mcp/):
+| **Full audit trail** | Every decision logged to `logs/` |
+| **You approve what matters** | Agents only ask for sign-off on critical actions (production, dangerous tools) |
 
 ```bash
 studio --execute --env dev          # Enable real actions in dev
 studio --execute --env prod         # Production (extra confirmation required)
-studio --mcp-config mcp.yaml --execute  # Connect via MCP
 ```
-
-Supports: Filesystem, GitHub, PostgreSQL, SQLite, Slack, Puppeteer, Web Fetch, and any [MCP server](https://github.com/modelcontextprotocol/servers).
 
 ---
 
@@ -176,26 +237,8 @@ Set up tasks that run on a schedule — weekly digests, daily summaries, recurri
 studio schedule add             # Create a recurring task
 studio schedule list            # Show all schedules
 studio schedule run             # Run all due tasks now
-studio schedule run pr-digest   # Run a specific one
 studio schedule daemon          # Run continuously in background
-studio schedule remove pr-digest  # Remove a schedule
 ```
-
-Example: a weekly PR digest that runs every Monday:
-
-```
-$ studio schedule add
-
-Name: pr-digest
-Task: Summarize all GitHub PRs from the last week, flag stale ones, list any security concerns
-How often? weekly
-Agents (Enter to auto-suggest):
-
-Scheduled: pr-digest
-Runs every 168h | Goal: Summarize all GitHub PRs...
-```
-
-Schedules are saved as YAML in `schedules/`. Run results go to `runs/`.
 
 ---
 
@@ -203,17 +246,20 @@ Schedules are saved as YAML in `schedules/`. Run results go to `runs/`.
 
 ```bash
 studio                              # Just describe your task (default)
+studio mcp add                      # Add an MCP server (interactive)
+studio mcp list                     # Show configured servers
+studio mcp remove <name>            # Remove a server
 studio schedule add                 # Create a recurring task
 studio schedule daemon              # Run scheduler in background
 studio --api-key                    # Use Anthropic API key instead of CLI login
 studio --supervised                 # Full control: approve every step
+studio --classic-plan               # Use old Haiku planner instead of manager briefing
+studio --no-plan                    # Skip the briefing/planning phase
 studio --worker-model sonnet        # Upgrade workers to Sonnet
 studio --manager-model opus         # Upgrade manager to Opus
-studio --no-plan                    # Skip the planning preview
 studio --execute --env dev          # Enable real tool actions
 studio --execute --env prod         # Production (requires confirmation)
 studio --token-limit 50000          # Lower spending cap
-studio --mcp-config mcp.yaml        # Connect real tools via MCP
 studio --show-models                # Show available models
 ```
 

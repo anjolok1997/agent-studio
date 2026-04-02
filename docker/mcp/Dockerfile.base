@@ -1,0 +1,21 @@
+# Base image for MCP servers running in Agent Studio sandbox.
+#
+# Security:
+#   - Runs as non-root user
+#   - No shell access (CMD only runs the MCP server)
+#   - --ignore-scripts prevents postinstall attacks
+#   - Network restricted at runtime via --network=none (except servers that need it)
+
+FROM node:22-alpine
+
+# Non-root user for security
+RUN addgroup -S mcp && adduser -S mcp -G mcp
+
+# Install the MCP server package (ARG is set per-server)
+ARG MCP_PACKAGE
+ARG MCP_VERSION
+
+RUN npm install --ignore-scripts -g ${MCP_PACKAGE}@${MCP_VERSION}
+
+USER mcp
+WORKDIR /home/mcp

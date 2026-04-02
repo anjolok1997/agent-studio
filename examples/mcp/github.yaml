@@ -29,7 +29,7 @@ servers:
   github:
     transport: stdio
     command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
+    args: ["-y", "@modelcontextprotocol/server-github@2025.4.8"]
     env:
       GITHUB_TOKEN: "ghp_your_token_here"
     tool_risks:

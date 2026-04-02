@@ -7,20 +7,30 @@ Ready-to-use configs that connect Agent Studio to real systems.
 Pick an example, copy it, and run:
 
 ```bash
-# Filesystem — analyze local files
-cp examples/mcp/filesystem.yaml mcp_config.yaml
-# Edit the path in mcp_config.yaml
-python3 launch.py --execute --env dev
+# Option 1: Interactive setup (recommended)
+studio mcp add
 
-# GitHub — review PRs, issues, code
-export GITHUB_TOKEN=$(gh auth token)   # or paste your token
+# Option 2: Copy an example config
 cp examples/mcp/github.yaml mcp_config.yaml
-python3 launch.py --execute --env dev
+# Edit tokens/credentials in the file
+studio --execute --env dev
+```
 
-# Custom — build your own
-cp examples/mcp/custom.yaml mcp_config.yaml
-# Uncomment the servers you want
-python3 launch.py --execute --env dev
+### Popular setups
+
+```bash
+# GitHub — review PRs, issues, code
+export GITHUB_TOKEN=$(gh auth token)
+studio mcp add    # pick "GitHub"
+
+# Slack — channel summaries, message search
+studio mcp add    # pick "Slack", paste bot token
+
+# Notion — search docs, update pages
+studio mcp add    # pick "Notion", paste integration token
+
+# Postgres — query your database
+studio mcp add    # pick "PostgreSQL", paste connection string
 ```
 
 ## Available Examples
@@ -28,25 +38,25 @@ python3 launch.py --execute --env dev
 ### `filesystem.yaml`
 Read and analyze local files. Works with code, docs, CSVs, configs.
 
-Try these tasks:
-- "Summarize all the Python files in this directory"
-- "Read the CSV and find the top 10 customers by revenue"
-- "Review all config files and flag any security issues"
-
 ### `github.yaml`
-Access GitHub repos, PRs, issues, and code.
+Access GitHub repos, PRs, issues, and code. Needs a GitHub token.
 
-Needs a GitHub token (or `gh auth token` if you use the CLI).
+### `slack.yaml`
+Read channels, search messages, send updates. Needs a Slack bot token.
 
-Try these tasks:
-- "Review all open PRs and summarize each one"
-- "Find all TODO comments across the codebase"
-- "List recent issues and suggest which ones to prioritize"
+### `notion.yaml`
+Search, read, and update Notion pages and databases. Needs an integration token.
+
+### `postgres.yaml`
+Query and inspect your PostgreSQL database (read-only by default).
+
+### `linear.yaml`
+Manage issues, projects, and cycles in Linear.
 
 ### `custom.yaml`
-Blank starter with all common servers commented out. Uncomment what you need.
+Blank starter with common servers commented out. Uncomment what you need.
 
-Includes: Filesystem, GitHub, PostgreSQL, SQLite, Slack, Web Fetch, Puppeteer.
+Or use the interactive setup: `studio mcp add`
 
 ## Combining Servers
 
