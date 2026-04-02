@@ -48,6 +48,8 @@ class Station:
         self.permissions = permissions or PermissionGuard()
         self.mcp_bridge = mcp_bridge
         self.artifacts: list[dict] = []
+        self.last_input_tokens: int = 0
+        self.last_output_tokens: int = 0
 
     def _do_research(self, topic: str, agent_type: str) -> str:
         """Actually research a topic using the model's knowledge."""
@@ -90,11 +92,16 @@ class Station:
         if self.mcp_bridge and self.llm.provider == "api":
             mcp_tools = self.mcp_bridge.discover_tools()
 
+        self.last_input_tokens = 0
+        self.last_output_tokens = 0
+
         if mcp_tools:
             result = self._run_with_tools(system, prompt, mcp_tools, agent_type)
         else:
             # CLI provider handles MCP natively via --mcp-config
             response = self.llm.call(system, prompt, max_tokens=4096)
+            self.last_input_tokens += response.input_tokens
+            self.last_output_tokens += response.output_tokens
             result = response.text
 
             # If the result looks like it needs research, do it
@@ -106,6 +113,8 @@ class Station:
                     f"Now produce your final deliverable based on these findings."
                 )
                 response = self.llm.call(system, prompt_with_research, max_tokens=4096)
+                self.last_input_tokens += response.input_tokens
+                self.last_output_tokens += response.output_tokens
                 result = response.text
 
         # Check for draft artifacts in the output
@@ -128,6 +137,8 @@ class Station:
                 system, prompt, max_tokens=4096,
                 tools=tools, messages=messages,
             )
+            self.last_input_tokens += response.input_tokens
+            self.last_output_tokens += response.output_tokens
 
             if not response.tool_calls or response.stop_reason != "tool_use":
                 return response.text or "(no output)"

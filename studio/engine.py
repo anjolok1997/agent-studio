@@ -152,6 +152,13 @@ class Engine:
         )
         self.quality_gate = QualityGate(emitter=self.emitter)
 
+    def _show_spending(self):
+        """Print live spending status and any new warnings."""
+        warning = self.spending.get_warning()
+        if warning:
+            print(f"\n  {YELLOW}⚠ {warning}{RESET}")
+        print(f"  {DIM}{self.spending.status_line()}{RESET}")
+
     def _build_worker_prompt(self, subtask: str, completed: list[tuple]) -> str:
         """Add prior results as context so workers can build on each other."""
         if not completed:
@@ -193,6 +200,10 @@ class Engine:
         result = self.quality_gate.validate_with_retries(
             subtask=worker_prompt, agent_type=agent_type, station=self.station,
         )
+
+        # Track worker tokens
+        self.spending.track(self.station.last_input_tokens, self.station.last_output_tokens)
+        self._show_spending()
 
         completed.append((agent_type, subtask, result))
         conversation.append(f"DELEGATE: [{agent_type}] {subtask}")
@@ -255,9 +266,10 @@ class Engine:
                     result = f"[ERROR] {d['agent_type']} failed: {e}"
                 results[d["agent_type"]] = (d["subtask"], result)
 
-        # Collect artifacts from all parallel worker stations
+        # Collect artifacts and tokens from all parallel worker stations
         for station in worker_stations.values():
             self.station.artifacts.extend(station.artifacts)
+            self.spending.track(station.last_input_tokens, station.last_output_tokens)
 
         # Feed all results back to conversation
         for agent_type, (subtask, result) in results.items():
@@ -266,6 +278,7 @@ class Engine:
             conversation.append(f"[Result from {agent_type}]: {result[:2000]}")
 
         print(f"  {GREEN}All {len(results)} parallel tasks complete.{RESET}")
+        self._show_spending()
         return list(results.values())
 
     def _request_delegation_approval(self, subtask: str, agent_type: str) -> tuple[bool, str]:

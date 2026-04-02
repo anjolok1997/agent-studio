@@ -237,10 +237,11 @@ class SpendingGuard:
         self.subscription_mode = subscription_mode
         self.threshold = threshold
         self._threshold_escalated = False
+        self._warnings_shown: set = set()
 
         if subscription_mode:
-            self.max_tokens = max_turns  # repurpose as max turns
-            self.tokens_used = 0        # repurpose as turns used
+            self.max_tokens = max_turns
+            self.tokens_used = 0
         else:
             self.max_tokens = max_tokens
             self.tokens_used = 0
@@ -248,7 +249,7 @@ class SpendingGuard:
     def track(self, input_tokens: int, output_tokens: int):
         """Record usage from an API/CLI call."""
         if self.subscription_mode:
-            self.tokens_used += 1  # count turns, not tokens
+            self.tokens_used += 1
         else:
             self.tokens_used += input_tokens + output_tokens
 
@@ -261,6 +262,31 @@ class SpendingGuard:
                 f"Run aborted to prevent excessive usage."
             )
         return True, f"{self.tokens_used:,} / {self.max_tokens:,} {unit} used"
+
+    @property
+    def percent_used(self) -> int:
+        if self.max_tokens == 0:
+            return 100
+        return int((self.tokens_used / self.max_tokens) * 100)
+
+    def get_warning(self) -> str:
+        """Return a warning if we crossed a new threshold (50%, 75%, 90%), else None."""
+        pct = self.percent_used
+        for level in (50, 75, 90):
+            if pct >= level and level not in self._warnings_shown:
+                self._warnings_shown.add(level)
+                unit = "turns" if self.subscription_mode else "tokens"
+                return f"{pct}% budget used ({self.tokens_used:,} / {self.max_tokens:,} {unit})"
+        return None
+
+    def status_line(self) -> str:
+        """Short status for live display."""
+        unit = "turns" if self.subscription_mode else "tokens"
+        pct = self.percent_used
+        bar_len = 20
+        filled = int(bar_len * pct / 100)
+        bar = "█" * filled + "░" * (bar_len - filled)
+        return f"[{bar}] {pct}% ({self.tokens_used:,} / {self.max_tokens:,} {unit})"
 
     def should_escalate(self) -> bool:
         """Returns True once when spending crosses the threshold but hasn't hit the hard cap."""
