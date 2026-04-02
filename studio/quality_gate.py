@@ -6,6 +6,8 @@ the user sees a quick summary and decides: approve, retry with
 feedback, or edit directly.
 """
 
+from __future__ import annotations
+
 from .events import EventEmitter
 from .station import Station
 

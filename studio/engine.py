@@ -7,6 +7,8 @@ validates via the quality gate, and synthesizes the final result.
 Uses LLM.call() for all model calls — no SDK-specific interfaces.
 """
 
+from __future__ import annotations
+
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
