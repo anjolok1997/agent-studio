@@ -84,7 +84,22 @@ class Station:
         prompt += (
             "\n\nIMPORTANT: Produce your complete deliverable directly. "
             "Be thorough and specific. Do not ask for clarification — "
-            "use your expertise to make reasonable decisions."
+            "use your expertise to make reasonable decisions.\n\n"
+            "When producing code, configuration, or any file that should exist on disk, "
+            "use this exact format for EACH file:\n\n"
+            "FILE: path/to/filename.ext\n"
+            "```language\n"
+            "file content here\n"
+            "```\n\n"
+            "Example:\n"
+            "FILE: src/app.py\n"
+            "```python\n"
+            "from flask import Flask\n"
+            "app = Flask(__name__)\n"
+            "```\n\n"
+            "This creates real files in a project directory. "
+            "Use proper relative paths (src/, tests/, etc). "
+            "Include ALL files needed to run the project."
         )
 
         # Check for MCP tools (API provider gets a tool-calling loop)

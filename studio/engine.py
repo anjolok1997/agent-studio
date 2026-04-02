@@ -130,6 +130,7 @@ class Engine:
         mcp_bridge=None,
         provider: str = "auto",
         mcp_config_path: str = None,
+        use_claude_integrations: bool = False,
     ):
         self.manager_llm = llm or LLM(provider=provider, model=manager_model)
         self.emitter = emitter or EventEmitter()
@@ -142,7 +143,9 @@ class Engine:
         self.mcp_bridge = mcp_bridge
         self._subtask_count = 0
 
-        worker_llm = LLM(provider=provider, model=worker_model, mcp_config_path=mcp_config_path)
+        worker_llm = LLM(provider=provider, model=worker_model,
+                         mcp_config_path=mcp_config_path,
+                         use_claude_integrations=use_claude_integrations)
 
         self.station = Station(
             llm=worker_llm,

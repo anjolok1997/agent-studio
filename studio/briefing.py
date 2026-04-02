@@ -63,13 +63,15 @@ class Briefing:
 
     def __init__(self, llm: LLM, agents: list[str], goal: str,
                  complexity: str = "medium",
-                 connected_mcps: list[str] = None, available_mcps: dict = None):
+                 connected_mcps: list[str] = None, available_mcps: dict = None,
+                 claude_integrations_info: str = None):
         self.llm = llm
         self.agents = agents
         self.goal = goal
         self.complexity = complexity
         self.connected_mcps = connected_mcps or []
         self.available_mcps = available_mcps or {}
+        self.claude_integrations_info = claude_integrations_info
         self.tokens_used = 0
 
     def _build_system(self) -> str:
@@ -128,6 +130,17 @@ class Briefing:
                 f"Example: \"This would work better with filesystem access. "
                 f"Type /mcp right here to connect it — takes 30 seconds.\"\n"
                 f"Don't push — just mention it once if relevant.\n\n"
+            )
+
+        # Claude integrations (Notion, Slack, etc. already authenticated)
+        if self.claude_integrations_info:
+            system += (
+                f"## Claude Integrations\n"
+                f"{self.claude_integrations_info}\n"
+                f"Workers automatically have access to connected integrations. "
+                f"If the task involves one of these tools, mention it — e.g. "
+                f"\"I see you have Notion connected, so I can write the study guide "
+                f"directly to your Notion workspace.\"\n\n"
             )
 
         system += (

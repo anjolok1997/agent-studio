@@ -382,6 +382,10 @@ def parse_args():
         help="Maximum tokens per run (default: 100,000)"
     )
     parser.add_argument(
+        "--use-integrations", action="store_true",
+        help="Let workers use your Claude integrations (Notion, Slack, etc.)"
+    )
+    parser.add_argument(
         "--env", type=str, default="dev",
         choices=["dev", "staging", "prod"],
         help="Target environment (default: dev)"
@@ -545,6 +549,17 @@ def main():
     if mcp_bridge and mcp_bridge.connected_servers:
         print(f"  {GREEN}MCP: Connected to {len(mcp_bridge.connected_servers)} server(s): {', '.join(mcp_bridge.connected_servers)}{RESET}\n")
 
+    # Auto-detect Claude integrations (Notion, Slack, etc.)
+    claude_integrations = {}
+    has_claude_integrations = False
+    if use_cli:
+        from studio.integrations import detect_claude_integrations
+        claude_integrations = detect_claude_integrations()
+        connected_names = [n for n, ok in claude_integrations.items() if ok]
+        if connected_names:
+            has_claude_integrations = True
+            print(f"  {GREEN}Integrations:{RESET} {', '.join(connected_names)}\n")
+
     # Warn if running in execute mode against production
     if args.execute and args.env == "prod":
         print(f"  {RED}{BOLD}WARNING: Execute mode targeting PRODUCTION.{RESET}")
@@ -644,6 +659,7 @@ def main():
         # Default: Interactive manager briefing
         from studio.briefing import Briefing
         from studio.mcp_cli import MCP_CATALOG
+        from studio.integrations import format_for_briefing
 
         connected_mcps = mcp_bridge.connected_servers if mcp_bridge else []
         available_mcps = {k: {"name": v["name"], "description": v["description"]}
@@ -654,6 +670,7 @@ def main():
             llm=manager_llm, agents=agents, goal=goal,
             complexity=task_complexity,
             connected_mcps=connected_mcps, available_mcps=available_mcps,
+            claude_integrations_info=format_for_briefing(claude_integrations) if claude_integrations else None,
         )
         briefing_result = briefing.run()
         spending.track(briefing_result.tokens_used, 0)
@@ -677,6 +694,7 @@ def main():
         mcp_bridge=mcp_bridge,
         provider=provider,
         mcp_config_path=str(mcp_config_path) if mcp_config_path.exists() else None,
+        use_claude_integrations=has_claude_integrations or args.use_integrations,
     )
 
     print(f"\n{GREEN}Launching Agent Studio...{RESET}")
@@ -692,31 +710,32 @@ def main():
     print(result["summary"])
 
     if result["artifacts"]:
-        # Save artifacts to disk
+        from studio.project_builder import process_artifacts
+
+        # Try to extract project files (FILE: blocks) from artifacts
         output_dir = Path("output")
-        output_dir.mkdir(exist_ok=True)
+        created_files, remaining = process_artifacts(result["artifacts"], output_dir / "project")
 
-        print(f"\n{'='*60}")
-        print(f"{BOLD}ARTIFACTS ({len(result['artifacts'])} produced){RESET}")
-        print(f"{'='*60}")
-        for i, a in enumerate(result["artifacts"], 1):
-            # Detect file extension from content
-            content = a["content"]
-            if content.strip().startswith("<!DOCTYPE") or content.strip().startswith("<html"):
-                ext = "html"
-            elif content.strip().startswith("{") or content.strip().startswith("["):
-                ext = "json"
-            elif "```python" in content or "def " in content[:200]:
-                ext = "py"
-            elif "```javascript" in content or "```typescript" in content:
-                ext = "js"
-            else:
-                ext = "md"
+        # Save any remaining artifacts that weren't project files
+        if remaining:
+            output_dir.mkdir(exist_ok=True)
 
-            filename = f"artifact_{i}_{a['agent']}.{ext}"
-            filepath = output_dir / filename
-            filepath.write_text(content)
-            print(f"\n  {GREEN}[{i}]{RESET} {BOLD}{filepath}{RESET} ({len(content):,} chars from {a['agent']})")
+            print(f"\n{'='*60}")
+            print(f"{BOLD}ARTIFACTS ({len(remaining)} produced){RESET}")
+            print(f"{'='*60}")
+            for i, a in enumerate(remaining, 1):
+                content = a["content"]
+                if content.strip().startswith("<!DOCTYPE") or content.strip().startswith("<html"):
+                    ext = "html"
+                elif content.strip().startswith("{") or content.strip().startswith("["):
+                    ext = "json"
+                else:
+                    ext = "md"
+
+                filename = f"artifact_{i}_{a['agent']}.{ext}"
+                filepath = output_dir / filename
+                filepath.write_text(content)
+                print(f"\n  {GREEN}[{i}]{RESET} {BOLD}{filepath}{RESET} ({len(content):,} chars from {a['agent']})")
 
             # Auto-open HTML files in the browser
             if ext == "html":
@@ -784,6 +803,7 @@ def main():
             mcp_bridge=mcp_bridge,
             provider=provider,
             mcp_config_path=str(mcp_config_path) if mcp_config_path.exists() else None,
+            use_claude_integrations=args.use_integrations,
         )
 
         result = engine.run(followup_goal, allowed_agents=followup_agents)

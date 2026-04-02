@@ -40,10 +40,11 @@ class LLM:
     """
 
     def __init__(self, provider: str = "auto", model: str = "claude-haiku-4-5-20251001",
-                 mcp_config_path: str = None):
+                 mcp_config_path: str = None, use_claude_integrations: bool = False):
         self.model = model
         self.provider = self._resolve_provider(provider)
         self.mcp_config_path = mcp_config_path
+        self.use_claude_integrations = use_claude_integrations
 
         if self.provider == "api":
             from anthropic import Anthropic
@@ -88,9 +89,16 @@ class LLM:
             "--system-prompt", system,
         ]
 
-        # If MCP config exists, let the CLI handle tool calling
+        # Tool access for workers:
+        # 1. Local MCP config → pass it to CLI
+        # 2. Use Claude integrations → let CLI use whatever the user has connected
+        # 3. No tools → disable everything (fastest, cheapest)
         if self.mcp_config_path and os.path.exists(self.mcp_config_path):
             cmd.extend(["--mcp-config", str(self.mcp_config_path)])
+            cmd.extend(["--max-turns", "5"])
+        elif self.use_claude_integrations:
+            # Let workers use Notion, Slack, etc. that the user
+            # already connected to their Claude account
             cmd.extend(["--max-turns", "5"])
         else:
             cmd.extend(["--max-turns", "1"])
