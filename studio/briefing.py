@@ -35,6 +35,13 @@ QUIT_SIGNALS = re.compile(
 MAX_TURNS = 8
 
 
+SPEED_PRESETS = {
+    "fast": ("claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001"),
+    "balanced": ("claude-sonnet-4-6", "claude-haiku-4-5-20251001"),
+    "powerful": ("claude-opus-4-6", "claude-sonnet-4-6"),
+}
+
+
 @dataclass
 class BriefingResult:
     """What the briefing returns to launch.py."""
@@ -42,6 +49,7 @@ class BriefingResult:
     approved: bool      # True = user said go, False = user quit
     turns: int          # Number of conversation turns
     tokens_used: int    # Total tokens consumed during briefing
+    speed_override: str = None  # "fast", "balanced", "powerful" or None
 
 
 def _format_manager_message(text: str) -> str:
@@ -171,7 +179,7 @@ class Briefing:
             if turn == MAX_TURNS:
                 print(f"\n  {YELLOW}Briefing is getting long — type 'go' to start or 'quit' to abort.{RESET}")
 
-            print(f"\n  {DIM}('go' to execute, 'quit' to abort, '/mcp' to connect a tool){RESET}")
+            print(f"\n  {DIM}('go' to execute, 'quit' to abort, '/mcp' to connect a tool, '/fast' '/powerful' to change speed){RESET}")
             try:
                 user_input = input(f"  {BOLD}You > {RESET}").strip()
             except (EOFError, KeyboardInterrupt):
@@ -204,12 +212,21 @@ class Briefing:
                     print(_format_manager_message(manager_reply))
                 continue
 
+            # /fast, /balanced, /powerful — change speed
+            speed_cmd = user_input.lower().lstrip("/")
+            if speed_cmd in SPEED_PRESETS:
+                self._speed_override = speed_cmd
+                manager_model, worker_model = SPEED_PRESETS[speed_cmd]
+                print(f"\n  {GREEN}Speed set to {speed_cmd}{RESET} {DIM}(manager: {manager_model.split('-')[1]}, workers: {worker_model.split('-')[1]}){RESET}")
+                continue
+
             if GO_SIGNALS.match(user_input):
                 conversation.append(f"[User]: {user_input}")
                 print(f"\n  {GREEN}Briefing complete. Launching agents...{RESET}")
                 return BriefingResult(
                     context=self._format_context(conversation),
                     approved=True, turns=turn, tokens_used=self.tokens_used,
+                    speed_override=getattr(self, '_speed_override', None),
                 )
 
             if QUIT_SIGNALS.match(user_input):

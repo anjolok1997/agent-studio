@@ -162,16 +162,35 @@ class Engine:
             print(f"\n  {YELLOW}⚠ {warning}{RESET}")
         print(f"  {DIM}{self.spending.status_line()}{RESET}")
 
+    def _summarize_result(self, agent_type: str, result: str) -> str:
+        """Summarize a worker's output to save tokens in downstream context."""
+        if len(result) <= 500:
+            return result
+        # Ask haiku for a quick summary instead of forwarding raw text
+        summary_response = self.manager_llm.call(
+            "Summarize this output in 2-3 sentences. Keep key facts, data, and decisions.",
+            f"Output from {agent_type}:\n{result[:3000]}",
+            max_tokens=256,
+        )
+        self.spending.track(summary_response.input_tokens, summary_response.output_tokens)
+        return summary_response.text.strip()
+
     def _build_worker_prompt(self, subtask: str, completed: list[tuple]) -> str:
-        """Add prior results as context so workers can build on each other."""
+        """Add summarized prior results as context so workers can build on each other."""
         if not completed:
             return subtask
         context_parts = []
         for prev_agent, prev_task, prev_result in completed:
-            context_parts.append(
-                f"--- Output from {prev_agent} ({prev_task[:80]}) ---\n"
-                f"{prev_result[:4000]}"
-            )
+            # Use summary for large outputs, raw text for small ones
+            if len(prev_result) > 500:
+                summary = self._summarize_result(prev_agent, prev_result)
+                context_parts.append(
+                    f"--- Summary from {prev_agent} ({prev_task[:80]}) ---\n{summary}"
+                )
+            else:
+                context_parts.append(
+                    f"--- Output from {prev_agent} ({prev_task[:80]}) ---\n{prev_result}"
+                )
         return (
             f"{subtask}\n\n"
             f"CONTEXT FROM PREVIOUS WORK:\n"
@@ -421,8 +440,11 @@ RULES:
         summary = ""
 
         for iteration in range(8):  # max 8 iterations
-            # Build the prompt with conversation history
-            prompt = "\n\n".join(conversation)
+            # Build the prompt — keep goal + briefing, but only last 4 conversation entries
+            # to avoid resending the entire history every turn
+            core = conversation[:2]  # goal (+ briefing if present)
+            recent = conversation[2:][-4:] if len(conversation) > 2 else []
+            prompt = "\n\n".join(core + recent)
             if completed:
                 prompt += "\n\nWhat's the next step? Respond with DELEGATE:, PARALLEL:, or DONE:"
             else:

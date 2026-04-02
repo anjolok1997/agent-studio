@@ -659,6 +659,11 @@ def main():
 
         briefing_context = briefing_result.context
 
+        # Apply speed override from briefing (/fast, /powerful, etc.)
+        if briefing_result.speed_override:
+            from studio.briefing import SPEED_PRESETS
+            manager_model, worker_model = SPEED_PRESETS[briefing_result.speed_override]
+
     if oversight_mode == OversightMode.CEO:
         print(f"\n  {GREEN}Agents working autonomously. You'll only be asked for critical actions.{RESET}\n")
 

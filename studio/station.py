@@ -88,17 +88,21 @@ class Station:
             "- If you need access to a system or file you don't have, say what's missing.\n"
             "- Do not fabricate data, file contents, API responses, or statistics.\n"
             "- Use connected tools for real data when available — do not generate from memory if a tool can provide it.\n"
-            "- Produce your complete deliverable directly. Be thorough and specific.\n\n"
-            "When producing code, configuration, or any file that should exist on disk, "
-            "use this exact format for EACH file:\n\n"
-            "FILE: path/to/filename.ext\n"
-            "```language\n"
-            "file content here\n"
-            "```\n\n"
-            "This creates real files in a project directory. "
-            "Use proper relative paths (src/, tests/, etc). "
-            "Include ALL files needed to run the project."
+            "- Produce your complete deliverable directly. Be thorough and specific."
         )
+
+        # Only add FILE format instructions when the task involves code/files
+        code_keywords = ["code", "build", "create", "implement", "api", "app", "script",
+                         "database", "schema", "deploy", "docker", "config", "pipeline"]
+        if any(kw in subtask.lower() for kw in code_keywords):
+            prompt += (
+                "\n\nWhen producing code or config files, use this format for EACH file:\n\n"
+                "FILE: path/to/filename.ext\n"
+                "```language\n"
+                "file content here\n"
+                "```\n\n"
+                "Use proper relative paths. Include ALL files needed to run the project."
+            )
 
         # Check for MCP tools (API provider gets a tool-calling loop)
         mcp_tools = []
