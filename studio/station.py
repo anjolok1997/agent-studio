@@ -91,17 +91,34 @@ class Station:
             "- Produce your complete deliverable directly. Be thorough and specific."
         )
 
-        # Only add FILE format instructions when the task involves code/files
-        code_keywords = ["code", "build", "create", "implement", "api", "app", "script",
+        # Detect what kind of output the task needs and instruct accordingly
+        task_lower = subtask.lower()
+
+        code_keywords = ["code", "build", "implement", "api", "app", "script",
                          "database", "schema", "deploy", "docker", "config", "pipeline"]
-        if any(kw in subtask.lower() for kw in code_keywords):
+        doc_keywords = ["guide", "document", "report", "summary", "plan", "analysis",
+                        "write", "draft", "create", "produce", "cheat sheet", "reference",
+                        "blog", "article", "proposal", "spec", "documentation"]
+
+        if any(kw in task_lower for kw in code_keywords):
             prompt += (
-                "\n\nWhen producing code or config files, use this format for EACH file:\n\n"
+                "\n\nProduce real, runnable files. Use this format for EACH file:\n\n"
                 "FILE: path/to/filename.ext\n"
                 "```language\n"
                 "file content here\n"
                 "```\n\n"
                 "Use proper relative paths. Include ALL files needed to run the project."
+            )
+        elif any(kw in task_lower for kw in doc_keywords):
+            prompt += (
+                "\n\nProduce your output as a real file. Use this format:\n\n"
+                "FILE: descriptive-filename.md\n"
+                "```markdown\n"
+                "your complete document here\n"
+                "```\n\n"
+                "Use a descriptive filename (e.g. aws-study-guide.md, api-spec.md). "
+                "The content should be complete and well-structured — this becomes "
+                "a real file the user keeps."
             )
 
         # Check for MCP tools (API provider gets a tool-calling loop)
