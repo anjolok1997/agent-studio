@@ -9,9 +9,13 @@ feedback, or edit directly.
 from __future__ import annotations
 
 import time
+import threading
 
 from .events import EventEmitter
 from .station import Station
+
+# Thread-safe printing for parallel workers
+_print_lock = threading.Lock()
 
 MAX_RETRIES = 2
 PREVIEW_CHARS = 600
@@ -92,17 +96,21 @@ class QualityGate:
 
     def validate_with_retries(self, subtask: str, agent_type: str, station: Station) -> str:
         """Run worker, show user the output, retry if they give feedback."""
-        print(f"\n  {CYAN}\u25b6{RESET} {BOLD}{agent_type}{RESET} — {subtask[:100]}")
+        with _print_lock:
+            print(f"\n  {CYAN}\u25b6{RESET} {BOLD}{agent_type}{RESET} — {subtask[:100]}")
         feedback = ""
 
         for attempt in range(1, MAX_RETRIES + 1):
             if attempt > 1:
-                print(f"    {YELLOW}\u21bb{RESET} Retrying ({attempt}/{MAX_RETRIES})...")
-            print(f"    {DIM}Working...{RESET}", end="", flush=True)
+                with _print_lock:
+                    print(f"    {YELLOW}\u21bb{RESET} Retrying ({attempt}/{MAX_RETRIES})...")
+            with _print_lock:
+                print(f"    {DIM}Working...{RESET}", flush=True)
             t0 = time.time()
             result = station.run(subtask, agent_type, attempt=attempt, prior_feedback=feedback)
             elapsed = time.time() - t0
-            print(f"\r    {GREEN}\u2713{RESET} Done — {len(result):,} chars ({elapsed:.0f}s)")
+            with _print_lock:
+                print(f"    {GREEN}\u2713{RESET} {BOLD}{agent_type}{RESET} — {len(result):,} chars ({elapsed:.0f}s)")
 
             approved, feedback = self.check(subtask, result, agent_type)
 
