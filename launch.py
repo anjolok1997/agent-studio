@@ -190,12 +190,12 @@ def pick_models_interactive(args) -> tuple:
     if args.manager_model != "sonnet" or args.worker_model != "haiku":
         return select_models(args)
 
-    # Subscription (CLI): better defaults since there's no per-token cost
-    # API key: cheaper defaults to save money
+    # Subscription (CLI): Opus manager (planning/reasoning), Sonnet workers (execution)
+    # API key: Sonnet/Haiku to save money
     if args.api_key:
         return MODELS["sonnet"], MODELS["haiku"]    # API: save tokens
     else:
-        return MODELS["sonnet"], MODELS["sonnet"]   # CLI: quality matters
+        return MODELS["opus"], MODELS["sonnet"]     # CLI: Opus plans, Sonnet executes
 
 
 # ─── Material Collection ─────────────────────────────────────────────────────
