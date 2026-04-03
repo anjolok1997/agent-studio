@@ -28,8 +28,10 @@ credentials/
 # MCP config (may contain database URLs, tokens)
 mcp_config.yaml
 
-# Audit logs
+# Audit logs and output
 logs/
+output/
+runs/
 
 # IDE
 .idea/

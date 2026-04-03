@@ -701,9 +701,9 @@ def main():
     if result["artifacts"]:
         from studio.project_builder import process_artifacts
 
-        # Try to extract project files (FILE: blocks) from artifacts
-        output_dir = Path("output")
-        created_files, remaining = process_artifacts(result["artifacts"], output_dir / "project")
+        # Output to current working directory (where user ran studio from)
+        output_dir = Path.cwd() / "studio-output"
+        created_files, remaining = process_artifacts(result["artifacts"], output_dir)
 
         # Save any remaining artifacts that weren't project files
         if remaining:
