@@ -492,9 +492,9 @@ def main():
     use_cli = provider == "cli"
 
     try:
-        # Team builder — Sonnet for subscription (free), Haiku for API (cheap)
-        suggest_model = "claude-sonnet-4-6" if use_cli else "claude-haiku-4-5-20251001"
-        suggest_llm = LLM(provider=provider, model=suggest_model)
+        # Team builder uses Haiku — it's just classification (picking agents from a list)
+        # No reasoning needed, Haiku is fast and accurate for this
+        suggest_llm = LLM(provider=provider, model="claude-haiku-4-5-20251001")
         if use_cli:
             print(f"  {GREEN}Signed in via Claude CLI{RESET}")
         else:

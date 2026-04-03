@@ -143,6 +143,11 @@ class Engine:
         self.mcp_bridge = mcp_bridge
         self._subtask_count = 0
 
+        self._worker_model = worker_model
+        self._provider = provider
+        self._mcp_config_path = mcp_config_path
+        self._use_claude_integrations = use_claude_integrations
+
         worker_llm = LLM(provider=provider, model=worker_model,
                          mcp_config_path=mcp_config_path,
                          use_claude_integrations=use_claude_integrations)
@@ -153,6 +158,9 @@ class Engine:
             permissions=self.permissions,
             mcp_bridge=mcp_bridge,
         )
+
+        # Lightweight LLM for tasks that don't need full worker power
+        self._haiku_llm = LLM(provider=provider, model="claude-haiku-4-5-20251001")
         self.quality_gate = QualityGate(emitter=self.emitter)
 
     def _show_spending(self):
@@ -163,11 +171,11 @@ class Engine:
         print(f"  {DIM}{self.spending.status_line()}{RESET}")
 
     def _summarize_result(self, agent_type: str, result: str) -> str:
-        """Summarize a worker's output to save tokens in downstream context."""
+        """Summarize a worker's output to save tokens in downstream context.
+        Uses Haiku — this is a simple extraction task, no reasoning needed."""
         if len(result) <= 500:
             return result
-        # Ask haiku for a quick summary instead of forwarding raw text
-        summary_response = self.manager_llm.call(
+        summary_response = self._haiku_llm.call(
             "Summarize this output in 2-3 sentences. Keep key facts, data, and decisions.",
             f"Output from {agent_type}:\n{result[:3000]}",
             max_tokens=256,
