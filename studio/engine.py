@@ -180,7 +180,7 @@ class Engine:
             f"Output from {agent_type}:\n{result[:3000]}",
             max_tokens=256,
         )
-        self.spending.track(summary_response.input_tokens, summary_response.output_tokens)
+        self.spending.track(summary_response.input_tokens, summary_response.output_tokens, "summarizer")
         return summary_response.text.strip()
 
     def _build_worker_prompt(self, subtask: str, completed: list[tuple]) -> str:
@@ -232,7 +232,7 @@ class Engine:
         )
 
         # Track worker tokens
-        self.spending.track(self.station.last_input_tokens, self.station.last_output_tokens)
+        self.spending.track(self.station.last_input_tokens, self.station.last_output_tokens, f"worker:{agent_type}")
         self._show_spending()
 
         completed.append((agent_type, subtask, result))
@@ -297,9 +297,9 @@ class Engine:
                 results[d["agent_type"]] = (d["subtask"], result)
 
         # Collect artifacts and tokens from all parallel worker stations
-        for station in worker_stations.values():
+        for agent_key, station in worker_stations.items():
             self.station.artifacts.extend(station.artifacts)
-            self.spending.track(station.last_input_tokens, station.last_output_tokens)
+            self.spending.track(station.last_input_tokens, station.last_output_tokens, f"worker:{agent_key}")
 
         # Feed all results back to conversation
         for agent_type, (subtask, result) in results.items():
@@ -460,7 +460,7 @@ RULES:
 
             print(f"\n{DIM}Manager is thinking...{RESET}", end="", flush=True)
             response = self.manager_llm.call(manager_system, prompt)
-            self.spending.track(response.input_tokens, response.output_tokens)
+            self.spending.track(response.input_tokens, response.output_tokens, "manager")
             self.audit.log_tokens(response.input_tokens, response.output_tokens, "manager")
             print(f"\r{' '*50}\r", end="")
 
@@ -582,7 +582,7 @@ RULES:
                 "You are a project manager. Write a clear, actionable summary.",
                 synth_prompt,
             )
-            self.spending.track(synthesis.input_tokens, synthesis.output_tokens)
+            self.spending.track(synthesis.input_tokens, synthesis.output_tokens, "synthesis")
             print(f"\r{' '*50}\r", end="")
             summary = synthesis.text
         self.emitter.emit("engine.completed", {"subtasks": len(completed)})
@@ -595,7 +595,14 @@ RULES:
             time_str = f"{int(total_time // 60)}m {int(total_time % 60)}s"
         else:
             time_str = f"{int(total_time)}s"
-        print(f"\n{GREEN}Done.{RESET} {DIM}{len(completed)} subtasks in {time_str} | {spend_msg} | Audit: {log_file}{RESET}\n")
+        print(f"\n{GREEN}Done.{RESET} {DIM}{len(completed)} subtasks in {time_str} | {spend_msg}{RESET}")
+
+        # Show token breakdown
+        report = self.spending.report()
+        if report:
+            print(f"\n  {BOLD}Token usage breakdown:{RESET}")
+            print(report)
+        print(f"\n  {DIM}Audit: {log_file}{RESET}\n")
 
         return {
             "summary": summary,

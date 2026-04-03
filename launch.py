@@ -632,7 +632,7 @@ def main():
 
         print(f"\n{DIM}Planning... (using haiku){RESET}")
         plan = planner.create_plan(goal, agents, worker_model, manager_model)
-        spending.track(plan["planning_tokens"], 0)
+        spending.track(plan["planning_tokens"], 0, "planner")
 
         approved = planner.display_plan(plan, worker_model, manager_model, args.token_limit)
         if not approved:
@@ -657,7 +657,7 @@ def main():
             claude_integrations_info=format_for_briefing(claude_integrations) if claude_integrations else None,
         )
         briefing_result = briefing.run()
-        spending.track(briefing_result.tokens_used, 0)
+        spending.track(briefing_result.tokens_used, 0, "briefing")
 
         if not briefing_result.approved:
             print("\nAborted during briefing. No execution tokens spent.")

@@ -238,6 +238,7 @@ class SpendingGuard:
         self.threshold = threshold
         self._threshold_escalated = False
         self._warnings_shown: set = set()
+        self._breakdown: dict = {}  # component -> tokens/turns used
 
         if subscription_mode:
             self.max_tokens = max_turns
@@ -246,12 +247,15 @@ class SpendingGuard:
             self.max_tokens = max_tokens
             self.tokens_used = 0
 
-    def track(self, input_tokens: int, output_tokens: int):
-        """Record usage from an API/CLI call."""
+    def track(self, input_tokens: int, output_tokens: int, component: str = "other"):
+        """Record usage from an API/CLI call, tagged by component."""
         if self.subscription_mode:
             self.tokens_used += 1
+            self._breakdown[component] = self._breakdown.get(component, 0) + 1
         else:
-            self.tokens_used += input_tokens + output_tokens
+            total = input_tokens + output_tokens
+            self.tokens_used += total
+            self._breakdown[component] = self._breakdown.get(component, 0) + total
 
     def check(self) -> tuple:
         """Check if we're within budget. Returns (ok: bool, message: str)."""
@@ -287,6 +291,25 @@ class SpendingGuard:
         filled = int(bar_len * pct / 100)
         bar = "█" * filled + "░" * (bar_len - filled)
         return f"[{bar}] {pct}% ({self.tokens_used:,} / {self.max_tokens:,} {unit})"
+
+    def report(self) -> str:
+        """Detailed breakdown of token usage by component."""
+        if not self._breakdown:
+            return ""
+        unit = "turns" if self.subscription_mode else "tokens"
+        total = self.tokens_used or 1
+
+        lines = []
+        # Sort by usage, highest first
+        sorted_items = sorted(self._breakdown.items(), key=lambda x: x[1], reverse=True)
+        for component, used in sorted_items:
+            pct = int((used / total) * 100)
+            bar_len = 15
+            filled = max(1, int(bar_len * pct / 100))
+            bar = "█" * filled + "░" * (bar_len - filled)
+            lines.append(f"    {bar} {component:20s} {used:>8,} {unit} ({pct}%)")
+
+        return "\n".join(lines)
 
     def should_escalate(self) -> bool:
         """Returns True once when spending crosses the threshold but hasn't hit the hard cap."""
