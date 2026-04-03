@@ -190,9 +190,12 @@ def pick_models_interactive(args) -> tuple:
     if args.manager_model != "sonnet" or args.worker_model != "haiku":
         return select_models(args)
 
-    # Default to balanced — skip the menu for a cleaner experience
-    # Users can override with --worker-model and --manager-model flags
-    return MODELS["sonnet"], MODELS["haiku"]
+    # Subscription (CLI): better defaults since there's no per-token cost
+    # API key: cheaper defaults to save money
+    if args.api_key:
+        return MODELS["sonnet"], MODELS["haiku"]    # API: save tokens
+    else:
+        return MODELS["sonnet"], MODELS["sonnet"]   # CLI: quality matters
 
 
 # ─── Material Collection ─────────────────────────────────────────────────────
@@ -486,10 +489,13 @@ def main():
     # Determine provider: CLI (default) vs API key
     provider = "api" if args.api_key else "cli"
 
+    use_cli = provider == "cli"
+
     try:
-        # Quick LLM for agent suggestion (uses haiku)
-        suggest_llm = LLM(provider=provider, model="claude-haiku-4-5-20251001")
-        if provider == "cli":
+        # Team builder — Sonnet for subscription (free), Haiku for API (cheap)
+        suggest_model = "claude-sonnet-4-6" if use_cli else "claude-haiku-4-5-20251001"
+        suggest_llm = LLM(provider=provider, model=suggest_model)
+        if use_cli:
             print(f"  {GREEN}Signed in via Claude CLI{RESET}")
         else:
             print(f"  {CYAN}Using API key{RESET}")
@@ -497,7 +503,7 @@ def main():
         print(f"\n  {RED}{e}{RESET}")
         sys.exit(1)
 
-    # Model selection
+    # Model defaults — subscription gets better models since there's no per-token cost
     manager_model, worker_model = pick_models_interactive(args)
     oversight_mode = OversightMode.SUPERVISED if args.supervised else OversightMode.CEO
 

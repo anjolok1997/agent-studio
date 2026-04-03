@@ -36,9 +36,10 @@ MAX_TURNS = 8
 
 
 SPEED_PRESETS = {
-    "fast": ("claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001"),
-    "balanced": ("claude-sonnet-4-6", "claude-haiku-4-5-20251001"),
+    "fast": ("claude-sonnet-4-6", "claude-haiku-4-5-20251001"),
+    "balanced": ("claude-sonnet-4-6", "claude-sonnet-4-6"),
     "powerful": ("claude-opus-4-6", "claude-sonnet-4-6"),
+    "max": ("claude-opus-4-6", "claude-opus-4-6"),
 }
 
 
