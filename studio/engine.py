@@ -411,34 +411,18 @@ class Engine:
         # the manager sees the result and decides what's next. This produces
         # better results than planning all subtasks upfront.
 
-        manager_system = f"""You are an orchestrating manager. You coordinate specialists to achieve a goal.
+        manager_system = f"You coordinate specialists: {', '.join(agents)}\n"
 
-Available specialists: {agents}
-"""
         if briefing_context:
-            manager_system += """
-You already discussed the approach with the user in a briefing session. The
-transcript is in your context. Use their preferences and decisions to guide
-your delegation. Do not re-ask questions that were already resolved.
-"""
-        manager_system += """
-WORKFLOW:
-1. Look at the goal (and any previous results)
-2. Decide what to delegate next
-3. For sequential work (needs prior results):
-     DELEGATE: [agent-type] Description of what they must deliver
-4. For independent work (can run at the same time):
-     PARALLEL: [agent-type] Task for first specialist
-     PARALLEL: [agent-type] Task for second specialist
-5. After seeing results, decide the next step
-6. When all work is done, respond with: DONE: followed by your final summary
+            manager_system += "You briefed the user already — follow their preferences.\n"
 
-RULES:
-- Use PARALLEL: when tasks don't depend on each other — this runs them simultaneously and saves time
-- Use DELEGATE: when a task needs results from a previous step
-- You can mix: PARALLEL a batch, then DELEGATE a follow-up that uses their results
-- When you have enough results, write DONE: and synthesize everything
-- Typically 2-4 subtasks total"""
+        manager_system += """
+Commands:
+  DELEGATE: [agent] task description  (sequential, one at a time)
+  PARALLEL: [agent] task             (independent tasks, run simultaneously)
+  DONE: final summary                (when complete)
+
+Rules: Use PARALLEL when tasks are independent. DELEGATE when order matters. 2-4 subtasks total."""
 
         conversation = []
         if briefing_context:
@@ -581,6 +565,7 @@ RULES:
             synthesis = self.manager_llm.call(
                 "You are a project manager. Write a clear, actionable summary.",
                 synth_prompt,
+                max_tokens=512,
             )
             self.spending.track(synthesis.input_tokens, synthesis.output_tokens, "synthesis")
             print(f"\r{' '*50}\r", end="")

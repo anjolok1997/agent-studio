@@ -82,15 +82,8 @@ class Station:
             )
 
         prompt += (
-            "\n\nRULES:\n"
-            "- Do what was asked, nothing more. Do not add features or make improvements beyond the task.\n"
-            "- If you don't know something, say so. Do not guess or make up information.\n"
-            "- If you need access to a system or file you don't have, say what's missing.\n"
-            "- Do not fabricate data, file contents, API responses, or statistics.\n"
-            "- Use connected tools for real data when available — do not generate from memory if a tool can provide it.\n"
-            "- Produce your complete deliverable directly. Be thorough and specific.\n\n"
-            "You can produce: code files, markdown (auto-converts to PDF), HTML, CSV, JSON.\n"
-            "Markdown documents should use proper formatting (headings, bullets, code blocks) — they become real PDFs."
+            "\n\nRULES: Do only what was asked. Don't guess or fabricate data — say what's missing. "
+            "Use connected tools for real data when available. Be thorough and specific."
         )
 
         # Detect what kind of output the task needs and instruct accordingly
@@ -102,32 +95,12 @@ class Station:
                         "write", "draft", "create", "produce", "cheat sheet", "reference",
                         "blog", "article", "proposal", "spec", "documentation"]
 
-        if any(kw in task_lower for kw in code_keywords):
-            prompt += (
-                "\n\nProduce real, runnable files. Use this format for EACH file:\n\n"
-                "FILE: path/to/filename.ext\n"
-                "```language\n"
-                "file content here\n"
-                "```\n\n"
-                "Use proper relative paths. Include ALL files needed to run the project."
-            )
-        elif any(kw in task_lower for kw in doc_keywords):
-            # Check if user specifically asked for PDF
-            wants_pdf = any(kw in task_lower for kw in ["pdf", "printable", "formatted document"])
-            format_note = " A PDF version will be auto-generated." if wants_pdf else ""
+        file_format = "\n\nOutput files as: FILE: filename.ext\n```language\ncontent\n```"
 
-            prompt += (
-                "\n\nProduce your output as a real file. Use this format:\n\n"
-                "FILE: descriptive-filename.md\n"
-                "```markdown\n"
-                "your complete document here\n"
-                "```\n\n"
-                "Use a descriptive filename (e.g. aws-study-guide.md, api-spec.md). "
-                "The content should be complete and well-structured — this becomes "
-                f"a real file the user keeps.{format_note}\n"
-                "Use proper markdown formatting (headings, bullets, code blocks) "
-                "so the document looks professional."
-            )
+        if any(kw in task_lower for kw in code_keywords):
+            prompt += file_format + "\nInclude all files needed to run the project."
+        elif any(kw in task_lower for kw in doc_keywords):
+            prompt += file_format + "\nUse a descriptive .md filename. Well-formatted markdown auto-converts to PDF."
 
         # Check for MCP tools (API provider gets a tool-calling loop)
         mcp_tools = []
@@ -141,7 +114,7 @@ class Station:
             result = self._run_with_tools(system, prompt, mcp_tools, agent_type)
         else:
             # CLI provider handles MCP natively via --mcp-config
-            response = self.llm.call(system, prompt, max_tokens=4096)
+            response = self.llm.call(system, prompt, max_tokens=2048)
             self.last_input_tokens += response.input_tokens
             self.last_output_tokens += response.output_tokens
             result = response.text
@@ -176,7 +149,7 @@ class Station:
 
         for _ in range(max_rounds):
             response = self.llm.call(
-                system, prompt, max_tokens=4096,
+                system, prompt, max_tokens=2048,
                 tools=tools, messages=messages,
             )
             self.last_input_tokens += response.input_tokens
