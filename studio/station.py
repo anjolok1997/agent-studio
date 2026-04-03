@@ -88,7 +88,18 @@ class Station:
             "- If you need access to a system or file you don't have, say what's missing.\n"
             "- Do not fabricate data, file contents, API responses, or statistics.\n"
             "- Use connected tools for real data when available — do not generate from memory if a tool can provide it.\n"
-            "- Produce your complete deliverable directly. Be thorough and specific."
+            "- Produce your complete deliverable directly. Be thorough and specific.\n\n"
+            "OUTPUT FORMATS YOU CAN PRODUCE:\n"
+            "- Markdown (.md) — yes, always available. Auto-converts to PDF.\n"
+            "- PDF — yes, generated automatically from your markdown output.\n"
+            "- Code files (.py, .js, .sql, .yaml, etc.) — yes, any text-based file.\n"
+            "- HTML — yes, including styled pages with CSS.\n"
+            "- CSV / JSON — yes, structured data files.\n"
+            "- Google Docs / Microsoft Word (.docx) — NO. Explain that you can produce markdown or PDF instead.\n"
+            "- PowerPoint / Slides — NO. Explain that you can produce a structured markdown outline or HTML instead.\n"
+            "- Images / diagrams — NO, unless using HTML/SVG. Suggest Mermaid diagrams in markdown if relevant.\n"
+            "- Notion pages — ONLY if Notion is connected as an integration.\n\n"
+            "If the user asks for a format you cannot produce, clearly state what you CAN do as an alternative."
         )
 
         # Detect what kind of output the task needs and instruct accordingly
