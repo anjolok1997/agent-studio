@@ -411,18 +411,15 @@ class Engine:
         # the manager sees the result and decides what's next. This produces
         # better results than planning all subtasks upfront.
 
-        manager_system = f"You coordinate specialists: {', '.join(agents)}\n"
+        manager_system = f"""You are a manager coordinating these specialists: {', '.join(agents)}
 
-        if briefing_context:
-            manager_system += "You briefed the user already — follow their preferences.\n"
+To assign work, respond with one of:
+  DELEGATE: [agent-type] what they must deliver
+  PARALLEL: [agent-type] task (use for independent tasks that can run simultaneously)
+  DONE: your final summary (only when all work is complete)
 
-        manager_system += """
-Commands:
-  DELEGATE: [agent] task description  (sequential, one at a time)
-  PARALLEL: [agent] task             (independent tasks, run simultaneously)
-  DONE: final summary                (when complete)
-
-Rules: Use PARALLEL when tasks are independent. DELEGATE when order matters. 2-4 subtasks total."""
+You MUST delegate at least one task before saying DONE.
+After each result, decide: delegate more or DONE.{' You briefed the user — follow their preferences.' if briefing_context else ''}"""
 
         conversation = []
         if briefing_context:
