@@ -86,7 +86,7 @@ def extract_files(artifacts: list[dict]) -> list[dict]:
 def build_project(files: list[dict], project_dir: Path) -> list[Path]:
     """Write extracted files to a project directory.
 
-    Returns list of created file paths.
+    Returns list of created file paths. Markdown docs also get a PDF version.
     """
     created = []
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +100,19 @@ def build_project(files: list[dict], project_dir: Path) -> list[Path]:
         # Write the file
         filepath.write_text(f["content"])
         created.append(filepath)
+
+        # Auto-generate PDF for markdown documents
+        if filepath.suffix == ".md":
+            try:
+                from .pdf_export import markdown_to_pdf
+                pdf_path = filepath.with_suffix(".pdf")
+                title = filepath.stem.replace("-", " ").replace("_", " ").title()
+                markdown_to_pdf(f["content"], pdf_path, title=title)
+                created.append(pdf_path)
+            except ImportError:
+                pass  # fpdf2 not installed, skip PDF
+            except Exception:
+                pass  # PDF generation failed, still have the .md
 
     return created
 

@@ -110,6 +110,10 @@ class Station:
                 "Use proper relative paths. Include ALL files needed to run the project."
             )
         elif any(kw in task_lower for kw in doc_keywords):
+            # Check if user specifically asked for PDF
+            wants_pdf = any(kw in task_lower for kw in ["pdf", "printable", "formatted document"])
+            format_note = " A PDF version will be auto-generated." if wants_pdf else ""
+
             prompt += (
                 "\n\nProduce your output as a real file. Use this format:\n\n"
                 "FILE: descriptive-filename.md\n"
@@ -118,7 +122,9 @@ class Station:
                 "```\n\n"
                 "Use a descriptive filename (e.g. aws-study-guide.md, api-spec.md). "
                 "The content should be complete and well-structured — this becomes "
-                "a real file the user keeps."
+                f"a real file the user keeps.{format_note}\n"
+                "Use proper markdown formatting (headings, bullets, code blocks) "
+                "so the document looks professional."
             )
 
         # Check for MCP tools (API provider gets a tool-calling loop)
