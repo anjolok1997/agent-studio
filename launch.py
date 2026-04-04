@@ -14,6 +14,7 @@ Run:
     python3 launch.py --worker-model sonnet                # Use Sonnet for workers
     python3 launch.py --execute --env staging              # Enable real actions
     python3 launch.py --execute --env prod                 # Production (escalates on all non-SAFE tools)
+    python3 launch.py --auto                                # Skip QA gates (auto-approve all)
     python3 launch.py --token-limit 50000                  # Lower spending cap
     python3 launch.py mcp add                              # Add an MCP server (interactive)
     python3 launch.py mcp list                             # Show configured servers
@@ -378,6 +379,10 @@ def parse_args():
         help="Path to MCP server config (default: mcp_config.yaml)"
     )
     parser.add_argument(
+        "--auto", action="store_true",
+        help="Auto-approve all QA gates (no manual review per subtask)"
+    )
+    parser.add_argument(
         "--show-models", action="store_true",
         help="Show available models and exit"
     )
@@ -684,9 +689,12 @@ def main():
         provider=provider,
         mcp_config_path=str(mcp_config_path) if mcp_config_path.exists() else None,
         use_claude_integrations=has_claude_integrations or args.use_integrations,
+        auto_approve=args.auto,
     )
 
     print(f"\n{GREEN}Launching Agent Studio...{RESET}")
+    if args.auto:
+        print(f"{YELLOW}Auto-approve mode — QA gates will be skipped{RESET}")
     print(f"{DIM}Team: {', '.join(agents)}{RESET}\n")
 
     result = engine.run(goal, allowed_agents=agents, briefing_context=briefing_context)
@@ -793,6 +801,7 @@ def main():
             provider=provider,
             mcp_config_path=str(mcp_config_path) if mcp_config_path.exists() else None,
             use_claude_integrations=args.use_integrations,
+            auto_approve=args.auto,
         )
 
         result = engine.run(followup_goal, allowed_agents=followup_agents)
